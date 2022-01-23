@@ -12,8 +12,8 @@ import warnings
 class Store(BaseStore):
     """Dask-backed timeseries data storage."""
 
-    def __init__(self, url, storage_options={}):
-        super().__init__(url, storage_options=storage_options)
+    def __init__(self, url, storage_options=None):
+        super().__init__(url, storage_options=storage_options if storage_options is not None else {})
 
     @staticmethod
     def _clean_dict(d):
@@ -80,7 +80,7 @@ class Store(BaseStore):
                 storage_options=self._clean_dict(self.storage_options),
             )
         except Exception as e:
-            raise RuntimeError(f"Unable to save data to {path}: {str(e)}")
+            raise RuntimeError(f"Unable to save data to {feature_path}: {str(e)}")
 
     def _read(
         self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs

@@ -297,6 +297,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 )
             # Save data for this feature
             namespace, name = self.__class__._split_name(namespace, name)
+            import pdb; pdb.set_trace()
             with conn.session_scope(self.session_maker) as session:
                 feature = (
                     session.query(model.Feature)
@@ -307,16 +308,17 @@ class CoreFeatureStore(BaseFeatureStore):
                 feature.save(df, self.url, self.storage_options)
         else:
             # Multiple features in column names
+            if name is not None and name in feature_columns:
+                feature_columns = [name]
             for feature_name in feature_columns:
-                if self.list_features(name=name, namespace=namespace).empty:
-                #if not self._exists(model.Feature, namespace, name):
+                if self.list_features(name=feature_name, namespace=namespace).empty:
                     raise MissingFeatureException(
                         f"Feature named {name} does not exist in {namespace}"
                     )
             for feature_name in feature_columns:
                 # Save individual features
                 feature_df = df[[*df.columns.difference(feature_columns), feature_name]]
-                self.save_dataframe(feature_df)
+                self.save_dataframe(feature_df, name=feature_name, namespace=namespace)
 
     def load_dataframe(
         self,
