@@ -1,11 +1,19 @@
+import os
+import logging
+
 from .base import BaseFeatureStore
 from . import connection as conn
 from . import model
 from . import upgrade as upgrade
 from . import timeseries as ts
+from . import utils
 from .exceptions import MissingFeatureException, FeatureStoreException
 
 import pandas as pd
+
+import pandera
+from pandera import DataFrameSchema
+from pandera import io
 
 
 class CoreFeatureStore(BaseFeatureStore):
@@ -17,7 +25,8 @@ class CoreFeatureStore(BaseFeatureStore):
         connection_string=None,
         connect_args={},
         storage_options=None,
-        backend="pandas"
+        backend="pandas",
+        verbose=False
     ):
         """
         Args:
@@ -32,8 +41,10 @@ class CoreFeatureStore(BaseFeatureStore):
         self.engine, self.session_maker = conn.connect(
             connection_string, connect_args=connect_args
         )
+        self.check_raise_error = os.environ.get('QAFS_RAISE_ERROR', 'True').lower() in ('true', '1', 't')
         model.Base.metadata.create_all(self.engine)
         upgrade.upgrade(self.engine)
+        utils.setup_logging(level=logging.INFO if verbose else logging.WARNING)
     
     def _list(self, cls, namespace=None, name=None, regex=None, friendly=True):
         namespace, name = self.__class__._split_name(namespace, name)
@@ -110,7 +121,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 "meta": meta,
             })
 
-    def delete_namespace(self, name):
+    def delete_namespace(self, name, delete_data=False):
         """Delete a namespace from the feature store.
         Args:
             name: namespace to be deleted.
@@ -181,7 +192,7 @@ class CoreFeatureStore(BaseFeatureStore):
             df = df[[*column_order, *df.columns.difference(column_order)]]
             return df
          
-    def create_feature(self, name, namespace=None, description=None, partition=None, serialized=None, transform=None, meta={}):
+    def create_feature(self, name, check, namespace=None, description=None, partition=None, serialized=None, transform=None, meta={}):
         """Create a new feature in the feature store.
         Args:
             name (str): name of the feature
@@ -199,6 +210,9 @@ class CoreFeatureStore(BaseFeatureStore):
         if ls.empty:
             raise MissingFeatureException(f"{namespace} namespace does not exist")
 
+        check._name = name
+        check_yaml = io.to_yaml(DataFrameSchema({name: check}))
+
         with conn.session_scope(self.session_maker) as session:
             obj = model.Feature()
             obj.update_from_dict({
@@ -208,6 +222,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 "partition": partition,
                 "serialized": serialized,
                 "transform": transform,
+                "check": check_yaml,
                 "meta": meta,
             })
             session.add(obj)
@@ -283,21 +298,14 @@ class CoreFeatureStore(BaseFeatureStore):
         # Check dataframe columns
         feature_columns = df.columns.difference(["time", "created_time"])
         if len(feature_columns) == 1:
-            # Single feature to save
-            if feature_columns[0] == "value":
-                if not name:
-                    raise FeatureStoreException("Must specify feature name")
-            else:
+            if name is None:
                 name = feature_columns[0]
-                df = df.rename(columns={name: "value"})
-            #if not self._exists(model.Feature, namespace, name):
             if self.list_features(name=name, namespace=namespace).empty:
                 raise MissingFeatureException(
                     f"Feature named {name} does not exist in {namespace}"
                 )
             # Save data for this feature
             namespace, name = self.__class__._split_name(namespace, name)
-            import pdb; pdb.set_trace()
             with conn.session_scope(self.session_maker) as session:
                 feature = (
                     session.query(model.Feature)
@@ -305,20 +313,32 @@ class CoreFeatureStore(BaseFeatureStore):
                     .one()
                 )
                 # Save individual feature
+                check = io.from_yaml(feature.check)
+                feature_check = check.columns[name]
+
+                try:
+                    df_columns = list(df.columns)
+                    if feature_check.name not in df_columns:
+                        name = f"{namespace}/{name}"
+                        feature_check._name = name
+                    df = feature_check.validate(df)
+                except pandera.errors.SchemaError as pse:
+                    if self.check_raise_error:
+                        raise pse
+                    else:
+                        logging.error(str(pse))
+
+                df = df.rename(columns={name: "value"})
                 feature.save(df, self.url, self.storage_options)
         else:
-            # Multiple features in column names
-            if name is not None and name in feature_columns:
-                feature_columns = [name]
-            for feature_name in feature_columns:
-                if self.list_features(name=feature_name, namespace=namespace).empty:
-                    raise MissingFeatureException(
-                        f"Feature named {name} does not exist in {namespace}"
-                    )
-            for feature_name in feature_columns:
-                # Save individual features
-                feature_df = df[[*df.columns.difference(feature_columns), feature_name]]
-                self.save_dataframe(feature_df, name=feature_name, namespace=namespace)
+            if name is not None:
+                feature_df = df[[*df.columns.difference(feature_columns), name]]
+                self.save_dataframe(feature_df, name=name, namespace=namespace)
+            else:
+                for feature_name in feature_columns:
+                    # Save individual features
+                    feature_df = df[[*df.columns.difference(feature_columns), feature_name]]
+                    self.save_dataframe(feature_df, name=feature_name, namespace=namespace)
 
     def load_dataframe(
         self,
@@ -365,7 +385,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 dfs.append(df.rename(columns={"value": f"{namespace}/{name}"}))
         return ts.concat(dfs)
 
-    def update_feature(self, name, namespace=None, description=None, transform=None, meta={}):
+    def update_feature(self, name, namespace=None, description=None, transform=None, check=None, meta={}):
         """Update a feature in the feature store.
         Args:
             name (str): feature to update.
@@ -387,13 +407,22 @@ class CoreFeatureStore(BaseFeatureStore):
                 raise MissingFeatureException(
                     f"No existing {cls.__name__} named {name} in {namespace}"
                 )
-            obj.update_from_dict({
+            
+            to_update = {
                 "description": description,
                 "transform": transform,
                 "meta": meta,
-            })
+            }
+
+            check_yaml = None
+            if check is not None:
+                check._name = name
+                check_yaml = io.to_yaml(DataFrameSchema({name: check}))
+                to_update = {"check": check_yaml, **to_update}
+
+            obj.update_from_dict(to_update)
     
-    def transform(self, name, namespace=None, from_features=[]):
+    def transform(self, name, check, namespace=None, from_features=[]):
         """Decorator for creating/updating virtual (transformed) features.
         Use this on a function that accepts a dataframe input and returns an output dataframe
         of tranformed values.
@@ -416,10 +445,10 @@ class CoreFeatureStore(BaseFeatureStore):
 #            if self._exists(model.Feature, namespace=to_namespace, name=to_name):
             if not self.list_features(namespace=to_namespace, name=to_name).empty:
                 # Already exists, update it
-                self.update_feature(to_name, namespace=to_namespace, **payload)
+                self.update_feature(to_name, namespace=to_namespace, check=check, **payload)
             else:
                 # Create a new feature
-                self.create_feature(to_name, namespace=to_namespace, **payload)
+                self.create_feature(to_name, namespace=to_namespace, check=check, **payload)
             # Call the transform
             def wrapped_func(*args, **kwargs):
                 return func(*args, **kwargs)

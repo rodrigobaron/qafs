@@ -11,7 +11,11 @@ import numpy as np
 import pandas as pd
 import dask.dataframe as dd
 
-import feature_store
+import pandera as pa
+from pandera import Column
+from pandera import io
+
+import qafs
 
 
 backends = [
@@ -93,8 +97,7 @@ def fs(filesystem, file_name):
     url = posixpath.join(_build_url(filesystem), file_name)
     if url.startswith('/tmp'):
         os.makedirs(url, exist_ok=True)
-    fs = feature_store.FeatureStore(
-        #url=posixpath.join(build_url(filesystem), file_name),
+    fs = qafs.FeatureStore(
         url=url,
         storage_options=filesystem["fs"].storage_options,
         backend=filesystem["backend"]
@@ -188,7 +191,7 @@ def test_namespaces(fs, filesystem):
     namespaces = fs.list_namespaces(regex="test")
     assert namespaces.name.iloc[0] == f"test_{ns1}"
 
-    fs.create_feature(f"{ns1}/test1")
+    fs.create_feature(f"{ns1}/test1", check=Column(pa.Int))
     with pytest.raises(Exception):
         fs.delete_namespace(ns1)
     print(fs.list_features())
@@ -206,9 +209,9 @@ def test_features(fs, filesystem):
 
     fs.create_namespace("test")
     fs.create_namespace("test2")
-    fs.create_feature("feature1", namespace="test", description="feature1")
-    fs.create_feature("feature2", namespace="test", description="feature2")
-    fs.create_feature("feature1", namespace="test2", description="feature1")
+    fs.create_feature("feature1", namespace="test", description="feature1", check=Column(pa.Int))
+    fs.create_feature("feature2", namespace="test", description="feature2", check=Column(pa.Int))
+    fs.create_feature("feature1", namespace="test2", description="feature1", check=Column(pa.Int))
 
     # Duplicate feature
     with pytest.raises(Exception):
@@ -248,10 +251,11 @@ def test_data_deletion(fs, filesystem, file_name):
 
     dts = pd.date_range("2021-01-01", "2021-01-10")
     df1 = pd.DataFrame(
-        {"time": dts, "value": np.random.randint(0, 100, size=len(dts))}
+        {"time": dts, "feature-to-delete": np.random.randint(0, 100, size=len(dts))}
     ).set_index("time")
     fs.create_feature(
         "test/feature-to-delete",
+        check=Column(pa.Int)
     )
     fs.save_dataframe(df1, "test/feature-to-delete")
     # Check data exists
@@ -270,6 +274,7 @@ def test_data_deletion(fs, filesystem, file_name):
 
     fs.create_feature(
         "test/feature-to-delete",
+        check=Column(pa.Int)
     )
     fs.save_dataframe(df1, "test/feature-to-delete")
     # Check data exists
@@ -299,9 +304,9 @@ def test_clone_features(fs):
 
     dts = pd.date_range("2021-01-01", "2021-01-10")
     df1 = pd.DataFrame(
-        {"time": dts, "value": np.random.randint(0, 100, size=len(dts))}
+        {"time": dts, "test/old-feature": np.random.randint(0, 100, size=len(dts))}
     ).set_index("time")
-    fs.create_feature("test/old-feature", description="Will be cloned", serialized=True)
+    fs.create_feature("test/old-feature", description="Will be cloned", serialized=True, check=Column(pa.Int))
     fs.save_dataframe(df1, "test/old-feature")
     fs.clone_feature("test/cloned-feature", from_name="test/old-feature")
     feature = fs.list_features(name="test/cloned-feature").iloc[0]
@@ -310,7 +315,7 @@ def test_clone_features(fs):
     assert feature.serialized == True
     # Check that data was copied
     result = fs.load_dataframe("test/cloned-feature")
-    compare_df(result, df1.rename(columns={"value": "test/cloned-feature"}))
+    compare_df(result, df1)
 
     fs.delete_feature("test/old-feature")
     fs.delete_feature("test/cloned-feature")
@@ -320,11 +325,11 @@ def test_dataframes(fs):
     print("Testing data load/save...")
 
     dts = pd.date_range("2021-01-01", "2021-01-10")
-    df1 = pd.DataFrame({"time": dts, "value": np.random.randn(len(dts))}).set_index(
+    df1 = pd.DataFrame({"time": dts, "test/df1": np.random.randn(len(dts))}).set_index(
         "time"
     )
     dts = pd.date_range("2021-01-01", "2021-02-01", freq="60min")
-    df2 = pd.DataFrame({"time": dts, "value": [{"x": np.random.randn()} for x in dts]})
+    df2 = pd.DataFrame({"time": dts, "df2": [{"x": np.random.randn()} for x in dts]})
     df3 = pd.DataFrame(
         {
             "time": dts,
@@ -335,10 +340,10 @@ def test_dataframes(fs):
     df5 = pd.DataFrame({"time": dts, "test/df5": np.random.randn(len(dts))})
 
     # Create features to hold these dataframes
-    fs.create_feature("test/df1", description="df1")
-    fs.create_feature("test/df2", description="df2")
-    fs.create_feature("test/df3", description="df3")
-    fs.create_feature("test/df4", description="df4", partition="year")
+    fs.create_feature("test/df1", description="df1", check=Column(pa.Float))
+    fs.create_feature("test/df2", description="df2", check=Column(pa.Object))
+    fs.create_feature("test/df3", description="df3", check=Column(pa.Float))
+    fs.create_feature("test/df4", description="df4", partition="year", check=Column(pa.Object))
 
     # Save to non-existent feature
     with pytest.raises(Exception):
@@ -354,11 +359,11 @@ def test_dataframes(fs):
 
     # Load back and check
     assert compare_df(
-        fs.load_dataframe("test/df1"), df1.rename(columns={"value": "test/df1"})
+        fs.load_dataframe("test/df1"), df1
     )
     assert compare_df(
         fs.load_dataframe("test/df2"),
-        df2.set_index("time").rename(columns={"value": "test/df2"}),
+        df2.set_index("time").rename(columns={"df2": "test/df2"}),
     )
     assert compare_df(
         fs.load_dataframe(["test/df3", "test/df4"]), df3.set_index("time")
@@ -384,8 +389,8 @@ def test_resampling(fs):
         {"time": dts, "test/resample2": [{"x": np.random.randn()} for x in dts]}
     ).set_index("time")
 
-    fs.create_feature("test/resample1", description="df1")
-    fs.create_feature("test/resample2", description="df2")
+    fs.create_feature("test/resample1", description="df1", check=Column(pa.Float))
+    fs.create_feature("test/resample2", description="df2", check=Column(pa.Object))
     fs.save_dataframe(df1)
     fs.save_dataframe(df2)
 
@@ -443,8 +448,8 @@ def test_resampling(fs):
     df4 = pd.DataFrame(
         {"time": dts, "test/resample4": np.random.randn(len(dts))}
     ).set_index("time")
-    fs.create_feature("test/resample3", description="df3")
-    fs.create_feature("test/resample4", description="df4")
+    fs.create_feature("test/resample3", description="df3", check=Column(pa.Float))
+    fs.create_feature("test/resample4", description="df4", check=Column(pa.Float))
     fs.save_dataframe(df3)
     fs.save_dataframe(df4)
 
@@ -465,15 +470,14 @@ def test_serialized_features(fs):
     fs.create_namespace("test")
     print("Testing JSON serialized features")
 
-    fs.create_feature("test/non-serialized")
-    fs.create_feature("test/serialized", serialized=True)
+    fs.create_feature("test/non-serialized", check=Column(pa.Int))
+    fs.create_feature("test/serialized", serialized=True, check=Column(pa.Object))
 
     dts = pd.date_range("2020-01-01", "2021-01-01")
     df = pd.DataFrame(
         {
             "time": dts,
-            # Values with changing schema
-            "value": [idx if idx < 150 else {"x": idx} for idx, x in enumerate(dts)],
+            "test/serialized": [idx if idx < 150 else {"x": idx} for idx, x in enumerate(dts)],
         }
     ).set_index("time")
 
@@ -486,7 +490,7 @@ def test_serialized_features(fs):
     # This should work
     fs.save_dataframe(df, "test/serialized")
     result = fs.load_dataframe("test/serialized")
-    assert compare_df(result, df.rename(columns={"value": "test/serialized"}))
+    assert compare_df(result, df)
 
     fs.delete_feature("test/non-serialized")
     fs.delete_feature("test/serialized")
@@ -500,7 +504,7 @@ def test_empty_features(fs):
     df1 = pd.DataFrame(
         {"time": dts, "test/empty1": np.random.randn(len(dts))}
     ).set_index("time")
-    fs.create_feature("test/empty1")
+    fs.create_feature("test/empty1", check=Column(pa.Float))
 
     result = fs.load_dataframe(["test/empty1"])
     assert empty_df(result)
@@ -544,7 +548,7 @@ def test_time_travel(fs):
             "created_time": dts - pd.Timedelta("60min"),
         }
     ).set_index("time")
-    fs.create_feature("test/timetravel1")
+    fs.create_feature("test/timetravel1", check=Column(pa.Int))
 
     fs.save_dataframe(df1)
     fs.save_dataframe(df2)
@@ -608,17 +612,18 @@ def test_transforms(fs):
         }
     ).set_index("time")
 
-    fs.create_feature("test/raw-feature")
+    fs.create_feature("test/raw-feature", check=Column(pa.Int))
     fs.save_dataframe(df1)
 
     # Create some transforms
-    @fs.transform("test/squared-feature", from_features=["test/raw-feature"])
+    @fs.transform("test/squared-feature", from_features=["test/raw-feature"], check=Column(pa.Int))
     def square(df):
         return df ** 2
 
     @fs.transform(
         "test/combined-feature",
         from_features=["test/raw-feature", "test/squared-feature"],
+        check=Column(pa.Int)
     )
     def add(df):
         return df["test/raw-feature"] + df["test/squared-feature"]
@@ -645,13 +650,13 @@ def test_transforms(fs):
     # )
 
     # Try to create recursive feature loop
-    fs.create_feature("test/recursive-feature")
+    fs.create_feature("test/recursive-feature", check=Column(pa.Float))
 
-    @fs.transform("test/recursive-feature-2", from_features=["test/recursive-feature"])
+    @fs.transform("test/recursive-feature-2", from_features=["test/recursive-feature"], check=Column(pa.Float))
     def passthrough(df):
         return df
 
-    @fs.transform("test/recursive-feature", from_features=["test/recursive-feature-2"])
+    @fs.transform("test/recursive-feature", from_features=["test/recursive-feature-2"], check=Column(pa.Float))
     def passthrough(df):
         return df
 

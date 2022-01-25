@@ -1,6 +1,8 @@
 import qafs
 import pandas as pd
-import pdb
+import pandera as pa
+from pandera import Check, Column, DataFrameSchema
+from pandera import io
 
 
 fs = qafs.FeatureStore(
@@ -11,16 +13,16 @@ fs = qafs.FeatureStore(
 fs.create_namespace(
     'tutorial', description='Tutorial datasets'
 )
+fs.create_feature('tutorial/numbers', description='Timeseries of numbers', check=Column(pa.Int, Check.greater_than(1)))
 
-fs.create_feature('tutorial/numbers', description='Timeseries of numbers')
+
 dts = pd.date_range('2020-01-01', '2021-02-09')
-df = pd.DataFrame({'time': dts, 'value2': list(range(len(dts))), 'numbers': list(range(len(dts)))})
+df = pd.DataFrame({'time': dts, 'tutorial/numbers': list(range(1, len(dts)+1))})
 
-fs.save_dataframe(df, 'numbers', namespace='tutorial')
+fs.save_dataframe(df, 'tutorial/numbers')
 
-@fs.transform('tutorial/squared', from_features=['tutorial/numbers'])
+@fs.transform('tutorial/squared', from_features=['tutorial/numbers'], check=Column(pa.Int, Check.greater_than(0)))
 def squared_numbers(df):
-    pdb.set_trace()
     return df ** 2 
 
 
@@ -28,4 +30,5 @@ df_query = fs.load_dataframe(
     ['tutorial/numbers', 'tutorial/squared'],
     from_date='2021-01-01', to_date='2021-01-31'
 )
-pdb.set_trace()
+
+import pdb; pdb.set_trace()

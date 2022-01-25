@@ -131,6 +131,7 @@ class Feature(Base, FeatureStoreMixin):
     partition = Column(partitions, default="date", nullable=False)
     serialized = Column(Boolean, default=False, nullable=False)
     transform = Column(JSON, nullable=True)
+    check = Column(String(), nullable=False)
 
     @hybrid_property
     def full_name(self):
