@@ -3,7 +3,6 @@ import pandas as pd
 
 
 class BaseFeatureStore(ABC):
-    
     @classmethod
     def _split_name(cls, namespace=None, name=None):
         """Parse namespace and name."""
@@ -11,7 +10,6 @@ class BaseFeatureStore(ABC):
             parts = name.split("/")
             namespace, name = parts[0], "/".join(parts[1:])
         return namespace, name
-
 
     @classmethod
     def _unpack_list(cls, obj, namespace=None):
@@ -25,10 +23,7 @@ class BaseFeatureStore(ABC):
             df = obj
             if "name" not in df.columns:
                 raise ValueError("DataFrame must have a name column")
-            return [
-                (row.get("namespace", namespace), row.get("name"))
-                for _, row in df.iterrows()
-            ]
+            return [(row.get("namespace", namespace), row.get("name")) for _, row in df.iterrows()]
         elif isinstance(obj, list):
             # Could be list of names, of list of dictionaries
             r = []
@@ -36,18 +31,12 @@ class BaseFeatureStore(ABC):
                 if isinstance(item, str):
                     r.append(cls._split_name(name=item, namespace=namespace))
                 elif isinstance(item, dict):
-                    r.append(
-                        cls._split_name(
-                            namespace=item.get("namespace"), name=item.get("name")
-                        )
-                    )
+                    r.append(cls._split_name(namespace=item.get("namespace"), name=item.get("name")))
                 else:
                     raise ValueError("List must contain strings or dicts")
             return r
         else:
-            raise ValueError(
-                "Must supply a string, dataframe or list specifying namespace/name"
-            )
+            raise ValueError("Must supply a string, dataframe or list specifying namespace/name")
 
     def __init__(self, connection_string=None, url=None, storage_options=None, backend="pandas"):
         """Create a Feature Store, or connect to an existing one.
@@ -119,7 +108,9 @@ class BaseFeatureStore(ABC):
         """
         raise NotImplementedError()
 
-    def create_feature(self, name, namespace=None, description=None, partition=None, serialized=None, transform=None, meta=None):
+    def create_feature(
+        self, name, namespace=None, description=None, partition=None, serialized=None, transform=None, meta=None
+    ):
         """Create a new feature in the feature store.
         Args:
             name (str): name of the feature
@@ -212,14 +203,14 @@ class BaseFeatureStore(ABC):
         """
         raise NotImplementedError()
 
-#    def last(self, features):
-#        """Fetch the last value of one or more features.
-#        Args:
-#            features (Union[str, list, pd.DataFrame]): feature or features to fetch.
-#        Returns:
-#            dict: dictionary of name, last value pairs.
-#        """
-#        raise NotImplementedError()
+    #    def last(self, features):
+    #        """Fetch the last value of one or more features.
+    #        Args:
+    #            features (Union[str, list, pd.DataFrame]): feature or features to fetch.
+    #        Returns:
+    #            dict: dictionary of name, last value pairs.
+    #        """
+    #        raise NotImplementedError()
 
     def create_task(self):
         """Create a scheduled task to update the feature store."""

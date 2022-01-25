@@ -32,11 +32,7 @@ class FeatureStoreMixin(object):
         return value
 
     def as_dict(self):
-        return {
-            k: v if utils.is_jsonable(v) else str(v)
-            for k, v in self.__dict__.items()
-            if k[0] != "_"
-        }
+        return {k: v if utils.is_jsonable(v) else str(v) for k, v in self.__dict__.items() if k[0] != "_"}
 
     def bump_version(self):
         if self.version:
@@ -48,13 +44,9 @@ class FeatureStoreMixin(object):
         if not payload:
             return
         if "name" in payload and self.name:
-            raise ValueError(
-                f"Cannot change name of {self.__class__.__name__}: use clone instead"
-            )
+            raise ValueError(f"Cannot change name of {self.__class__.__name__}: use clone instead")
         if "namespace" in payload and self.namespace:
-            raise ValueError(
-                f"Cannot change namespace of {self.__class__.__name__}: use clone instead"
-            )
+            raise ValueError(f"Cannot change namespace of {self.__class__.__name__}: use clone instead")
         for key, value in payload.items():
             if key == "meta" or key == "metadata":
                 # See https://amercader.net/blog/beware-of-json-fields-in-sqlalchemy/
@@ -103,13 +95,9 @@ class Namespace(Base, FeatureStoreMixin):
         # Check backend is available and get it
         backend = "pandas" if not self.backend else self.backend.lower()
         if self.backend in storage.available_backends:
-            return storage.available_backends[backend](
-                url=url, storage_options=storage_options
-            )
+            return storage.available_backends[backend](url=url, storage_options=storage_options)
         else:
-            raise RuntimeError(
-                f"{backend} storage backend is not available: make sure and dependencies are installed"
-            )
+            raise RuntimeError(f"{backend} storage backend is not available: make sure and dependencies are installed")
 
     def clean(self, url, storage_options):
         # Check for unused data and remove it
@@ -153,9 +141,7 @@ class Feature(Base, FeatureStoreMixin):
         elif isinstance(value.get("function"), types.FunctionType):
             func = utils.serialize(value["function"])
         else:
-            raise ValueError(
-                "Transform must be a Python function, accepting a single dataframe input"
-            )
+            raise ValueError("Transform must be a Python function, accepting a single dataframe input")
         assert "function" in value.keys(), "Transform must have a function defined"
         assert "args" in value.keys(), "Transform must have arguments defined"
         # Convert function to base64/cloudpickle format
@@ -184,18 +170,14 @@ class Feature(Base, FeatureStoreMixin):
         store = self.namespace_object._backend(url, storage_options)
         store.save(self.name, df, partition=self.partition, serialized=self.serialized)
 
-    def load_transform(
-        self, url, storage_options, from_date, to_date, freq, time_travel, last=False, callers=[]
-    ):
+    def load_transform(self, url, storage_options, from_date, to_date, freq, time_travel, last=False, callers=[]):
         # Get the SQLAlchemy session for this feature
         session = sa.inspect(self).session
         if not session:
             raise RuntimeError(f"{self.name} is not bound to an SQLAlchemy session")
         # Check for recursive transforms
         if self.full_name in callers:
-            raise RuntimeError(
-                f"Recursive feature transform detected on {self.full_name}"
-            )
+            raise RuntimeError(f"Recursive feature transform detected on {self.full_name}")
         # Load the transform function
         func = utils.deserialize(self.transform["function"])
         # Load the features to transform
@@ -203,11 +185,7 @@ class Feature(Base, FeatureStoreMixin):
         # Load each requested feature
         for f in self.transform["args"]:
             namespace, name = f.split("/")[0], "/".join(f.split("/")[1:])
-            feature = (
-                session.query(Feature)
-                .filter_by(name=name, namespace=namespace)
-                .one_or_none()
-            )
+            feature = session.query(Feature).filter_by(name=name, namespace=namespace).one_or_none()
             if not feature:
                 raise ValueError(f"No feature named {name} exists in {namespace}")
             # Load individual feature
@@ -232,7 +210,7 @@ class Feature(Base, FeatureStoreMixin):
 
     def load(
         self,
-        url, 
+        url,
         storage_options,
         from_date=None,
         to_date=None,

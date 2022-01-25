@@ -18,9 +18,7 @@ class BaseStore(ABC):
         raise NotADirectoryError()
 
     @abstractmethod
-    def load(
-        self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs
-    ):
+    def load(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
         """Load a single timeseries dataframe from storage."""
         raise NotImplementedError()
 

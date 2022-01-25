@@ -82,9 +82,7 @@ class Store(BaseStore):
         except Exception as e:
             raise RuntimeError(f"Unable to save data to {feature_path}: {str(e)}")
 
-    def _read(
-        self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs
-    ):
+    def _read(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
         # Identify which partitions to read
         filters = []
         if from_date:
@@ -109,9 +107,7 @@ class Store(BaseStore):
             raise e
         except Exception as e:
             # No data available
-            empty_df = pd.DataFrame(
-                columns=["time", "created_time", "value", "partition"]
-            ).set_index("time")
+            empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"]).set_index("time")
             ddf = dd.from_pandas(empty_df, chunksize=1)
         if "partition" in ddf.columns:
             ddf = ddf.drop(columns="partition")
@@ -136,15 +132,11 @@ class Store(BaseStore):
         feature_names = [p.split("/")[-1] for p in fs.ls(path)]
         return feature_names
 
-    def load(
-        self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs
-    ):
+    def load(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
         # Find the last value _before_ time range to carry over
         last_before = from_date
         if from_date:
-            _, last_before = self._range(
-                name, to_date=from_date, time_travel=time_travel
-            )
+            _, last_before = self._range(name, to_date=from_date, time_travel=time_travel)
             last_before = last_before["time"]
         ddf = self._read(name, last_before, to_date, freq, time_travel, **kwargs)
         if not from_date:
@@ -201,15 +193,9 @@ class Store(BaseStore):
             first = ddf.head(1)
             last = ddf.tail(1)
         first = (
-            {"time": None, "value": None}
-            if first.empty
-            else {"time": first.index[0], "value": first["value"].iloc[0]}
+            {"time": None, "value": None} if first.empty else {"time": first.index[0], "value": first["value"].iloc[0]}
         )
-        last = (
-            {"time": None, "value": None}
-            if last.empty
-            else {"time": last.index[0], "value": last["value"].iloc[0]}
-        )
+        last = {"time": None, "value": None} if last.empty else {"time": last.index[0], "value": last["value"].iloc[0]}
         return first, last
 
     def first(self, name, **kwargs):
@@ -238,9 +224,7 @@ class Store(BaseStore):
         if np.issubdtype(ddf.index.dtype, np.datetime64):
             ddf = ddf.reset_index()
             if "time" in df.columns:
-                raise ValueError(
-                    "Not sure whether to use timestamp index or time column"
-                )
+                raise ValueError("Not sure whether to use timestamp index or time column")
         # Check time column
         partition = kwargs.get("partition", "date")
         if "time" in ddf.columns:
@@ -249,9 +233,7 @@ class Store(BaseStore):
             ddf = ddf.assign(partition=self._apply_partition(partition, ddf.time))
             ddf = ddf.set_index("time")
         else:
-            raise ValueError(
-                f"DataFrame must be supplied with timestamps, not {ddf.index.dtype}"
-            )
+            raise ValueError(f"DataFrame must be supplied with timestamps, not {ddf.index.dtype}")
         # Check for created_time column
         if "created_time" not in ddf.columns:
             ddf = ddf.assign(created_time=pd.Timestamp.now())
@@ -263,9 +245,7 @@ class Store(BaseStore):
             raise ValueError(f"DataFrame contains extraneous columns: {extraneous}")
         # Serialize to JSON if required
         if kwargs.get("serialized"):
-            ddf = ddf.map_partitions(
-                lambda df: df.assign(value=df.value.apply(pd.io.json.dumps))
-            )
+            ddf = ddf.map_partitions(lambda df: df.assign(value=df.value.apply(pd.io.json.dumps)))
         # Save
         self._write(name, ddf, append=True)
 

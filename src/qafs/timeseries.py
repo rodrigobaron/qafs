@@ -16,9 +16,7 @@ def concat(dfs):
     elif isinstance(dfs[0], dd.DataFrame):
         # Use Dask concat
         dfs = functools.reduce(
-            lambda left, right: dd.merge(
-                left, right, left_index=True, right_index=True, how="outer"
-            ),
+            lambda left, right: dd.merge(left, right, left_index=True, right_index=True, how="outer"),
             [df for df in dfs],
         )
         return dfs.ffill()
@@ -33,13 +31,9 @@ def transform(df, func):
     if isinstance(transformed, pd.Series) or isinstance(transformed, dd.Series):
         transformed = transformed.to_frame("value")
     if isinstance(df, pd.DataFrame) and not isinstance(transformed, pd.DataFrame):
-        raise RuntimeError(
-            f"Transforms in this namespace should return Pandas dataframes or series"
-        )
+        raise RuntimeError(f"Transforms in this namespace should return Pandas dataframes or series")
     if isinstance(df, dd.DataFrame) and not isinstance(transformed, dd.DataFrame):
-        raise RuntimeError(
-            f"Transforms in this namespace should return Dask dataframes or series"
-        )
+        raise RuntimeError(f"Transforms in this namespace should return Dask dataframes or series")
     if len(transformed.columns) != 1:
         raise RuntimeError(
             f"Transform function should return a dataframe with a datetime index and single value column"

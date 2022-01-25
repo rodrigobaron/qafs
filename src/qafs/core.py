@@ -17,16 +17,10 @@ from pandera import io
 
 
 class CoreFeatureStore(BaseFeatureStore):
-    """**Core Feature Store**
-    """
+    """**Core Feature Store**"""
+
     def __init__(
-        self,
-        url,
-        connection_string=None,
-        connect_args={},
-        storage_options=None,
-        backend="pandas",
-        verbose=False
+        self, url, connection_string=None, connect_args={}, storage_options=None, backend="pandas", verbose=False
     ):
         """
         Args:
@@ -38,14 +32,12 @@ class CoreFeatureStore(BaseFeatureStore):
         self.url = url
         self.storage_options = storage_options
         self.backend = backend
-        self.engine, self.session_maker = conn.connect(
-            connection_string, connect_args=connect_args
-        )
+        self.engine, self.session_maker = conn.connect(connection_string, connect_args=connect_args)
         self.check_raise_error = os.environ.get('QAFS_RAISE_ERROR', 'True').lower() in ('true', '1', 't')
         model.Base.metadata.create_all(self.engine)
         upgrade.upgrade(self.engine)
         utils.setup_logging(level=logging.INFO if verbose else logging.WARNING)
-    
+
     def _list(self, cls, namespace=None, name=None, regex=None, friendly=True):
         namespace, name = self.__class__._split_name(namespace, name)
         with conn.session_scope(self.session_maker) as session:
@@ -71,7 +63,7 @@ class CoreFeatureStore(BaseFeatureStore):
             column_order = [c for c in column_order if c in df.columns]
             df = df[[*column_order, *df.columns.difference(column_order)]]
             return df
-    
+
     def list_namespaces(self, name=None, namespace=None, regex=None):
         """List namespaces in the feature store.
         Search by name or regex query.
@@ -82,24 +74,15 @@ class CoreFeatureStore(BaseFeatureStore):
         Returns:
             pd.DataFrame: DataFrame of namespaces and metadata.
         """
-        return self._list(
-            model.Namespace,
-            name=name if name is not None else namespace,
-            regex=regex
-        )
+        return self._list(model.Namespace, name=name if name is not None else namespace, regex=regex)
 
     def create_namespace(self, name, description='', meta={}, backend=None):
         backend = backend if backend is not None else self.backend
         with conn.session_scope(self.session_maker) as session:
             obj = model.Namespace()
-            obj.update_from_dict({
-                "name": name,
-                "description": description,
-                "meta": meta,
-                "backend": backend
-            })
+            obj.update_from_dict({"name": name, "description": description, "meta": meta, "backend": backend})
             session.add(obj)
-    
+
     def update_namespace(self, name=None, description=None, meta={}):
         """Update a namespace in the feature store.
         Args:
@@ -113,13 +96,13 @@ class CoreFeatureStore(BaseFeatureStore):
             r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(
-                    f"No existing {model.Namespace.__name__} named {name}"
-                )
-            obj.update_from_dict({
-                "description": description,
-                "meta": meta,
-            })
+                raise MissingFeatureException(f"No existing {model.Namespace.__name__} named {name}")
+            obj.update_from_dict(
+                {
+                    "description": description,
+                    "meta": meta,
+                }
+            )
 
     def delete_namespace(self, name, delete_data=False):
         """Delete a namespace from the feature store.
@@ -127,21 +110,17 @@ class CoreFeatureStore(BaseFeatureStore):
             name: namespace to be deleted.
         """
         if not self.list_features(namespace=name).empty:
-            raise FeatureStoreException(
-                f"{name} still contains features: these must be deleted first"
-            )
+            raise FeatureStoreException(f"{name} still contains features: these must be deleted first")
         with conn.session_scope(self.session_maker) as session:
             r = session.query(model.Namespace)
             r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(
-                    f"No existing {cls.__name__} named {name} in {namespace}"
-                )
+                raise MissingFeatureException(f"No existing {cls.__name__} named {name} in {namespace}")
             if hasattr(obj, "delete_data") and delete_data:
                 obj.delete_data()
             session.delete(obj)
-    
+
     def clean_namespace(self, name):
         """Removes any data that is not associated with features in the namespace.
         Run this to free up disk space after deleting features
@@ -155,7 +134,7 @@ class CoreFeatureStore(BaseFeatureStore):
             if not namespace:
                 raise MissingFeatureException(f"No existing Namespace named {name}")
             namespace.clean(self.url, self.storage_options)
-    
+
     def list_features(self, name=None, namespace=None, regex=None, friendly=True):
         """List features in the feature store.
         Search by namespace, name and/or regex query
@@ -191,8 +170,10 @@ class CoreFeatureStore(BaseFeatureStore):
             column_order = [c for c in column_order if c in df.columns]
             df = df[[*column_order, *df.columns.difference(column_order)]]
             return df
-         
-    def create_feature(self, name, check, namespace=None, description=None, partition=None, serialized=None, transform=None, meta={}):
+
+    def create_feature(
+        self, name, check, namespace=None, description=None, partition=None, serialized=None, transform=None, meta={}
+    ):
         """Create a new feature in the feature store.
         Args:
             name (str): name of the feature
@@ -215,18 +196,20 @@ class CoreFeatureStore(BaseFeatureStore):
 
         with conn.session_scope(self.session_maker) as session:
             obj = model.Feature()
-            obj.update_from_dict({
-                "name": name,
-                "namespace": namespace,
-                "description": description,
-                "partition": partition,
-                "serialized": serialized,
-                "transform": transform,
-                "check": check_yaml,
-                "meta": meta,
-            })
+            obj.update_from_dict(
+                {
+                    "name": name,
+                    "namespace": namespace,
+                    "description": description,
+                    "partition": partition,
+                    "serialized": serialized,
+                    "transform": transform,
+                    "check": check_yaml,
+                    "meta": meta,
+                }
+            )
             session.add(obj)
-    
+
     def clone_feature(self, name, namespace=None, from_name=None, from_namespace=None):
         """Create a new feature by cloning an existing one.
         Args:
@@ -238,10 +221,10 @@ class CoreFeatureStore(BaseFeatureStore):
         to_namespace, to_name = self.__class__._split_name(namespace, name)
         from_namespace, from_name = self.__class__._split_name(from_namespace, from_name)
         if self.list_namespaces(namespace=from_namespace).empty:
-        #if not self._exists(model.Namespace, namespace=from_namespace):
+            # if not self._exists(model.Namespace, namespace=from_namespace):
             raise MissingFeatureException(f"{from_namespace} namespace does not exist")
         if self.list_namespaces(namespace=to_namespace).empty:
-        #if not self._exists(model.Namespace, namespace=to_namespace):
+            # if not self._exists(model.Namespace, namespace=to_namespace):
             raise MissingFeatureException(f"{to_namespace} namespace does not exist")
         with conn.session_scope(self.session_maker) as session:
             # Get the existing feature
@@ -249,9 +232,7 @@ class CoreFeatureStore(BaseFeatureStore):
             r = r.filter_by(namespace=from_namespace, name=from_name)
             feature = r.one_or_none()
             if not feature:
-                raise MissingFeatureException(
-                    f"No existing Feature named {from_name} in {from_namespace}"
-                )
+                raise MissingFeatureException(f"No existing Feature named {from_name} in {from_namespace}")
             # Create the new feature
             new_feature = model.Feature.clone_from(feature, to_namespace, to_name)
             session.add(new_feature)
@@ -277,13 +258,11 @@ class CoreFeatureStore(BaseFeatureStore):
                 r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(
-                    f"No existing {model.Feature.__name__} named {name} in {namespace}"
-                )
+                raise MissingFeatureException(f"No existing {model.Feature.__name__} named {name} in {namespace}")
             if hasattr(obj, "delete_data") and delete_data:
                 obj.delete_data(self.url, self.storage_options)
             session.delete(obj)
-    
+
     def save_dataframe(self, df, name=None, namespace=None):
         """Save a DataFrame of feature values to the feature store.
         Args:
@@ -301,17 +280,11 @@ class CoreFeatureStore(BaseFeatureStore):
             if name is None:
                 name = feature_columns[0]
             if self.list_features(name=name, namespace=namespace).empty:
-                raise MissingFeatureException(
-                    f"Feature named {name} does not exist in {namespace}"
-                )
+                raise MissingFeatureException(f"Feature named {name} does not exist in {namespace}")
             # Save data for this feature
             namespace, name = self.__class__._split_name(namespace, name)
             with conn.session_scope(self.session_maker) as session:
-                feature = (
-                    session.query(model.Feature)
-                    .filter_by(name=name, namespace=namespace)
-                    .one()
-                )
+                feature = session.query(model.Feature).filter_by(name=name, namespace=namespace).one()
                 # Save individual feature
                 check = io.from_yaml(feature.check)
                 feature_check = check.columns[name]
@@ -364,15 +337,9 @@ class CoreFeatureStore(BaseFeatureStore):
         for f in self._unpack_list(features):
             namespace, name = f
             with conn.session_scope(self.session_maker) as session:
-                feature = (
-                    session.query(model.Feature)
-                    .filter_by(name=name, namespace=namespace)
-                    .one_or_none()
-                )
+                feature = session.query(model.Feature).filter_by(name=name, namespace=namespace).one_or_none()
                 if not feature:
-                    raise MissingFeatureException(
-                        f"No feature named {name} exists in {namespace}"
-                    )
+                    raise MissingFeatureException(f"No feature named {name} exists in {namespace}")
                 # Load individual feature
                 df = feature.load(
                     self.url,
@@ -404,10 +371,8 @@ class CoreFeatureStore(BaseFeatureStore):
                 r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(
-                    f"No existing {cls.__name__} named {name} in {namespace}"
-                )
-            
+                raise MissingFeatureException(f"No existing {cls.__name__} named {name} in {namespace}")
+
             to_update = {
                 "description": description,
                 "transform": transform,
@@ -421,7 +386,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 to_update = {"check": check_yaml, **to_update}
 
             obj.update_from_dict(to_update)
-    
+
     def transform(self, name, check, namespace=None, from_features=[]):
         """Decorator for creating/updating virtual (transformed) features.
         Use this on a function that accepts a dataframe input and returns an output dataframe
@@ -431,6 +396,7 @@ class CoreFeatureStore(BaseFeatureStore):
             namespace (str, optional): namespace, if not included in feature name.
             from_features (list): list of features which should be transformed by this one
         """
+
         def decorator(func):
             # Create or update feature with transform
             to_namespace, to_name = self._split_name(namespace=namespace, name=name)
@@ -442,7 +408,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 assert not self.list_features(name=feature).empty, f"{feature} does not exist in the feature store"
             transform = {"function": func, "args": computed_from}
             payload = {"transform": transform, "description": func.__doc__}
-#            if self._exists(model.Feature, namespace=to_namespace, name=to_name):
+            #            if self._exists(model.Feature, namespace=to_namespace, name=to_name):
             if not self.list_features(namespace=to_namespace, name=to_name).empty:
                 # Already exists, update it
                 self.update_feature(to_name, namespace=to_namespace, check=check, **payload)

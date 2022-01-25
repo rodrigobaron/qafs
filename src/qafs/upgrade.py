@@ -13,11 +13,7 @@ def upgrade(engine):
     session_maker = sessionmaker(bind=engine)
     session = session_maker()
 
-    r = (
-        session.query(model.FeatureStoreVersion)
-        .order_by(model.FeatureStoreVersion.timestamp.desc())
-        .first()
-    )
+    r = session.query(model.FeatureStoreVersion).order_by(model.FeatureStoreVersion.timestamp.desc()).first()
     if not r:
         current_version = "0"
     else:
