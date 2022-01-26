@@ -32,13 +32,13 @@ For that **qafs** have a strong dependecy with [pandera](https://pandera.readthe
 
 ## Get Started
 
-Installing the python package thought pip:  
+Installing the python package through pip:  
 
 ```bash
 $ pip install qafs
 ```
 
-Bellow is an example of usage **qafs** where we'll create a feature store and register `numbers` feature and an `squared` feature transformation. First we need import the packages and create the feature store, for this example we are using sqlite database and persisting the features in a disk location:  
+Bellow is an example of usage **qafs** where we'll create a feature store and register `numbers` feature and an `squared` feature transformation. First we need import the packages and create the feature store, for this example we are using sqlite database and persisting the features in the filesystem:  
 
 ```python
 import qafs
