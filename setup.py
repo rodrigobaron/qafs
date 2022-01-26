@@ -23,7 +23,7 @@ setup(
     author="Rodrigo Baron",
     author_email="baron.rodrigo0@gmail.com",
     url="https://github.com/rodrigobaron/qafs",
-    license="Apache",
+    license="GPL-3.0",
     package_dir={'': 'src'},
     packages=find_packages(where="src"),
     zip_safe=False,

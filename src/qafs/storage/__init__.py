@@ -1,11 +1,17 @@
 import importlib
 import os
 
-
 available_backends = {}
 
 
-def _import_backend(name):
+def _import_backend(name: str):
+    """Import store backend.
+
+    Parameters
+    ----------
+    name: str
+        store backend name.
+    """
     try:
         mod = importlib.import_module("." + name, __name__)
         available_backends[name] = mod.Store

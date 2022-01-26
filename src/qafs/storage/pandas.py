@@ -1,5 +1,6 @@
-from .dask import Store as Dask
 import pandas as pd
+
+from .dask import Store as Dask
 
 
 class Store(Dask):
@@ -36,5 +37,5 @@ class Store(Dask):
             )
         else:
             # Filter on date range
-            pdf = pdf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]
+            pdf = pdf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
         return pdf

@@ -1,19 +1,18 @@
-import os
 import logging
-
-from .base import BaseFeatureStore
-from . import connection as conn
-from . import model
-from . import upgrade as upgrade
-from . import timeseries as ts
-from . import utils
-from .exceptions import MissingFeatureException, FeatureStoreException
+import os
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
-
 import pandera
-from pandera import DataFrameSchema
-from pandera import io
+from pandera import Column, DataFrameSchema, io
+
+from . import connection as conn
+from . import model
+from . import timeseries as ts
+from . import upgrade as upgrade
+from . import utils
+from .base import BaseFeatureStore
+from .exceptions import FeatureStoreException, MissingFeatureException
 
 
 class CoreFeatureStore(BaseFeatureStore):
@@ -27,7 +26,7 @@ class CoreFeatureStore(BaseFeatureStore):
             connection_string (str): SQLAlchemy connection string for database.
             connect_args (dict, optional): dictionary of [connection arguments](https://docs.sqlalchemy.org/en/14/core/engines.html#sqlalchemy.create_engine.params.connect_args)
                 to pass to SQLAlchemy.
-        """
+        """  # noqa: E501
         connection_string = "/".join(["sqlite://", url, 'fs.db']) if connection_string is None else connection_string
         self.url = url
         self.storage_options = storage_options
@@ -64,32 +63,63 @@ class CoreFeatureStore(BaseFeatureStore):
             df = df[[*column_order, *df.columns.difference(column_order)]]
             return df
 
-    def list_namespaces(self, name=None, namespace=None, regex=None):
+    def list_namespaces(
+        self, name: Optional[str] = None, namespace: Optional[str] = None, regex: Optional[str] = None
+    ):
         """List namespaces in the feature store.
+
         Search by name or regex query.
-        Args:
-            name (str, optional): name of namespace to filter by.
-            namespace (str, optional): same as name.
-            regex (str, optional): regex filter on name.
-        Returns:
-            pd.DataFrame: DataFrame of namespaces and metadata.
+
+        Parameters
+        ----------
+        name: str, optional
+            name of namespace to filter by.
+        namespace: str, optional
+            same as name.
+        regex: str, optional
+            regex filter on name.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame of namespaces and metadata.
         """
         return self._list(model.Namespace, name=name if name is not None else namespace, regex=regex)
 
-    def create_namespace(self, name, description='', meta={}, backend=None):
+    def create_namespace(
+        self, name: str, description: Optional[str] = None, meta: Optional[Dict] = {}, backend: Optional[str] = None
+    ):
+        """Create a new namespace in the feature store.
+
+        Parameters
+        ----------
+        name: str
+            name of the namespace.
+        description: str, optional
+            description for this namespace.
+        meta: dict, optional
+            key/value pairs of metadata.
+        backend: str, optional
+            storage backend, see feature_store.storage.available_backends, defaults to `"pandas"`.
+        """
         backend = backend if backend is not None else self.backend
         with conn.session_scope(self.session_maker) as session:
             obj = model.Namespace()
             obj.update_from_dict({"name": name, "description": description, "meta": meta, "backend": backend})
             session.add(obj)
 
-    def update_namespace(self, name=None, description=None, meta={}):
+    def update_namespace(self, name: str, description: Optional[str] = None, meta: Optional[Dict] = {}):
         """Update a namespace in the feature store.
-        Args:
-            name (str): namespace to update.
-            description (str, optional): updated description.
-            meta (dict, optional): updated key/value pairs of metadata.
-                To remove metadata, update using `{"key_to_remove": None}`.
+
+        Parameters
+        ----------
+        name: str
+            namespace to update.
+        description: str, optional
+            updated description.
+        meta: dict, optional
+            updated key/value pairs of metadata.
+            To remove metadata, update using `{"key_to_remove": None}`.
         """
         with conn.session_scope(self.session_maker) as session:
             r = session.query(model.Namespace)
@@ -104,10 +134,15 @@ class CoreFeatureStore(BaseFeatureStore):
                 }
             )
 
-    def delete_namespace(self, name, delete_data=False):
+    def delete_namespace(self, name: str, delete_data: bool = False):
         """Delete a namespace from the feature store.
-        Args:
-            name: namespace to be deleted.
+
+        Parameters
+        ----------
+        name: str
+            namespace to be deleted.
+        delete_data: bool
+            also delete feature data
         """
         if not self.list_features(namespace=name).empty:
             raise FeatureStoreException(f"{name} still contains features: these must be deleted first")
@@ -116,16 +151,20 @@ class CoreFeatureStore(BaseFeatureStore):
             r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(f"No existing {cls.__name__} named {name} in {namespace}")
+                raise MissingFeatureException(f"No existing {model.Namespace.__name__} named {name} in {name}")
             if hasattr(obj, "delete_data") and delete_data:
                 obj.delete_data()
             session.delete(obj)
 
-    def clean_namespace(self, name):
+    def clean_namespace(self, name: str):
         """Removes any data that is not associated with features in the namespace.
+
         Run this to free up disk space after deleting features
-        Args:
-            name (str): namespace to clean
+
+        Parameters
+        ----------
+        name: str
+            namespace to clean
         """
         with conn.session_scope(self.session_maker) as session:
             r = session.query(model.Namespace)
@@ -135,16 +174,32 @@ class CoreFeatureStore(BaseFeatureStore):
                 raise MissingFeatureException(f"No existing Namespace named {name}")
             namespace.clean(self.url, self.storage_options)
 
-    def list_features(self, name=None, namespace=None, regex=None, friendly=True):
+    def list_features(
+        self,
+        name: Optional[str] = None,
+        namespace: Optional[str] = None,
+        regex: Optional[str] = None,
+        friendly: Optional[bool] = None,
+    ):
         """List features in the feature store.
+
         Search by namespace, name and/or regex query
-        Args:
-            name (str, optional): name of feature to filter by.
-            namespace (str, optional): namespace to filter by.
-            regex (str, optional): regex filter on name.
-            friendly (bool, optional): simplify output for user.
-        Returns:
-            pd.DataFrame: DataFrame of features and metadata.
+
+        Parameters
+        ----------
+        name: str, optional
+            name of feature to filter by.
+        namespace: str, optional
+            namespace to filter by.
+        regex: str, optional
+            regex filter on name.
+        friendly: bool, optional
+            simplify output for user.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame of features and metadata.
         """
         namespace, name = self.__class__._split_name(namespace, name)
         with conn.session_scope(self.session_maker) as session:
@@ -172,19 +227,38 @@ class CoreFeatureStore(BaseFeatureStore):
             return df
 
     def create_feature(
-        self, name, check, namespace=None, description=None, partition=None, serialized=None, transform=None, meta={}
+        self,
+        name: str,
+        check: Column,
+        namespace: Optional[str] = None,
+        description: Optional[str] = None,
+        partition: Optional[str] = None,
+        serialized: Optional[bool] = None,
+        transform: Optional[str] = None,
+        meta: Optional[Dict] = {},
     ):
         """Create a new feature in the feature store.
-        Args:
-            name (str): name of the feature
-            namespace (str, optional): namespace which should hold this feature.
-            description (str, optional): description for this namespace.
-            partition (str, optional): partitioning of stored timeseries (default: `"date"`).
-            serialized (bool, optional): if `True`, converts values to JSON strings before saving,
-                which can help in situations where the format/schema of the data changes
-                over time.
-            transform (str, optional): pickled function code for feature transforms.
-            meta (dict, optional): key/value pairs of metadata.
+
+        Parameters
+        ----------
+        name: str
+            name of the feature
+        check: Column
+            Data validation check
+        namespace: str, optional
+            namespace which should hold this feature.
+        description: str, optional
+            description for this namespace.
+        partition: str, optional
+            partitioning of stored timeseries (default: `"date"`).
+        serialized: bool, optional
+            if `True`, converts values to JSON strings before saving,
+            which can help in situations where the format/schema of the data changes
+            over time.
+        transform: str, optional
+            pickled function code for feature transforms.
+        meta: dict, optional
+            key/value pairs of metadata.
         """
         namespace, name = self.__class__._split_name(namespace, name)
         ls = self._list(model.Namespace, namespace=namespace)
@@ -210,21 +284,31 @@ class CoreFeatureStore(BaseFeatureStore):
             )
             session.add(obj)
 
-    def clone_feature(self, name, namespace=None, from_name=None, from_namespace=None):
+    def clone_feature(
+        self,
+        name: str,
+        namespace: Optional[str] = None,
+        from_name: Optional[str] = None,
+        from_namespace: Optional[str] = None,
+    ):
         """Create a new feature by cloning an existing one.
-        Args:
-            name (str): name of the feature.
-            namespace (str, optional): namespace which should hold this feature.
-            from_name (str): the name of the existing feature to copy from.
-            from_namespace (str, optional): namespace of the existing feature.
+
+        Parameters
+        ----------
+        name: str
+            name of the feature.
+        namespace: str, optional
+            namespace which should hold this feature.
+        from_name: str
+            the name of the existing feature to copy from.
+        from_namespace: str, optional
+            namespace of the existing feature.
         """
         to_namespace, to_name = self.__class__._split_name(namespace, name)
         from_namespace, from_name = self.__class__._split_name(from_namespace, from_name)
         if self.list_namespaces(namespace=from_namespace).empty:
-            # if not self._exists(model.Namespace, namespace=from_namespace):
             raise MissingFeatureException(f"{from_namespace} namespace does not exist")
         if self.list_namespaces(namespace=to_namespace).empty:
-            # if not self._exists(model.Namespace, namespace=to_namespace):
             raise MissingFeatureException(f"{to_namespace} namespace does not exist")
         with conn.session_scope(self.session_maker) as session:
             # Get the existing feature
@@ -240,14 +324,19 @@ class CoreFeatureStore(BaseFeatureStore):
             if not new_feature.transform:
                 new_feature.import_data_from(feature, self.url, self.storage_options)
 
-    def delete_feature(self, name, namespace=None, delete_data=False):
+    def delete_feature(self, name: str, namespace: Optional[str] = None, delete_data: Optional[bool] = False):
         """Delete a feature from the feature store.
-        Args:
-            name (str): name of feature to delete.
-            namespace (str, optional): namespace, if not included in feature name.
-            delete_data (bool, optional): if set to `True` will delete underlying stored data
-                for this feature, otherwise default behaviour is to delete the feature store
-                metadata but leave the stored timeseries values intact.
+
+        Parameters
+        ----------
+        name: str
+            name of feature to delete.
+        namespace str, optional
+            namespace, if not included in feature name.
+        delete_data: bool, optional
+            if set to `True` will delete underlying stored data
+            for this feature, otherwise default behaviour is to delete the feature store
+            metadata but leave the stored timeseries values intact.
         """
         namespace, name = self.__class__._split_name(namespace, name)
         with conn.session_scope(self.session_maker) as session:
@@ -263,16 +352,21 @@ class CoreFeatureStore(BaseFeatureStore):
                 obj.delete_data(self.url, self.storage_options)
             session.delete(obj)
 
-    def save_dataframe(self, df, name=None, namespace=None):
+    def save_dataframe(self, df: pd.DataFrame, name: Optional[str] = None, namespace: Optional[str] = None):
         """Save a DataFrame of feature values to the feature store.
-        Args:
-            df (pd.DataFrame): DataFrame of feature values.
-                Must have a `time` column or DateTimeIndex of time values.
-                Optionally include a `created_time` column (defaults to `utcnow()` if omitted).
-                For a single feature: a `value` column, or column header of feature `namespace/name`.
-                For multiple features name the columns using `namespace/name`.
-            name (str, optional): name of feature, if not included in DataFrame column name.
-            namespace (str, optional): namespace, if not included in DataFrame column name.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame of feature values.
+            Must have a `time` column or DateTimeIndex of time values.
+            Optionally include a `created_time` column (defaults to `utcnow()` if omitted).
+            For a single feature: a `value` column, or column header of feature `namespace/name`.
+            For multiple features name the columns using `namespace/name`.
+        name: str, optional
+            name of feature, if not included in DataFrame column name.
+        namespace: str, optional
+            namespace, if not included in DataFrame column name.
         """
         # Check dataframe columns
         feature_columns = df.columns.difference(["time", "created_time"])
@@ -315,22 +409,32 @@ class CoreFeatureStore(BaseFeatureStore):
 
     def load_dataframe(
         self,
-        features,
-        from_date=None,
-        to_date=None,
-        freq=None,
-        time_travel=None,
+        features: Union[str, list, pd.DataFrame],
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        freq: Optional[str] = None,
+        time_travel: Optional[str] = None,
     ):
         """Load a DataFrame of feature values from the feature store.
-        Args:
-            features (Union[str, list, pd.DataFrame]): name of feature to load, or list/DataFrame of feature namespaces/name.
-            from_date (datetime, optional): start date to load timeseries from, defaults to everything.
-            to_date (datetime, optional): end date to load timeseries to, defaults to everything.
-            freq (str, optional): frequency interval at which feature values should be sampled.
-            time_travel (str, optional): timedelta string, indicating that time-travel should be applied to the
-                returned timeseries values, useful in forecasting applications.
-        Returns:
-            Union[pd.DataFrame, dask.DataFrame]: depending on which backend was specified in the feature store.
+
+        Parameters
+        ----------
+        features: Union[str, list, pd.DataFrame]
+            name of feature to load, or list/DataFrame of feature namespaces/name.
+        from_date: datetime, optional
+            start date to load timeseries from, defaults to everything.
+        to_date datetime, optional
+            end date to load timeseries to, defaults to everything.
+        freq: str, optional
+            frequency interval at which feature values should be sampled.
+        time_travel str, optional
+            timedelta string, indicating that time-travel should be applied to the
+            returned timeseries values, useful in forecasting applications.
+
+        Returns
+        -------
+        Union[pd.DataFrame, dask.DataFrame]
+            depending on which backend was specified in the feature store.
         """
         dfs = []
         # Load each requested feature
@@ -352,15 +456,32 @@ class CoreFeatureStore(BaseFeatureStore):
                 dfs.append(df.rename(columns={"value": f"{namespace}/{name}"}))
         return ts.concat(dfs)
 
-    def update_feature(self, name, namespace=None, description=None, transform=None, check=None, meta={}):
+    def update_feature(
+        self,
+        name: str,
+        namespace: Optional[str] = None,
+        description: Optional[str] = None,
+        transform: Optional[str] = None,
+        check: Optional[Column] = None,
+        meta: Optional[Dict] = {},
+    ):
         """Update a feature in the feature store.
-        Args:
-            name (str): feature to update.
-            namespace (str, optional): namespace, if not included in feature name.
-            description (str, optional): updated description.
-            transform (str, optional): pickled function code for feature transforms.
-            meta (dict, optional): updated key/value pairs of metadata.
-                To remove metadata, update using `{"key_to_remove": None}`.
+
+        Parameters
+        ----------
+        name: str
+            feature to update.
+        namespace: str, optional
+            namespace, if not included in feature name.
+        description: str, optional
+            updated description.
+        transform: str, optional
+            pickled function code for feature transforms.
+        check: Column, optional
+            data validation check.
+        meta: dict, optional
+            updated key/value pairs of metadata.
+            To remove metadata, update using `{"key_to_remove": None}`.
         """
         namespace, name = self.__class__._split_name(namespace, name)
         with conn.session_scope(self.session_maker) as session:
@@ -371,7 +492,7 @@ class CoreFeatureStore(BaseFeatureStore):
                 r = r.filter_by(name=name)
             obj = r.one_or_none()
             if not obj:
-                raise MissingFeatureException(f"No existing {cls.__name__} named {name} in {namespace}")
+                raise MissingFeatureException(f"No existing {model.Feature.__name__} named {name} in {namespace}")
 
             to_update = {
                 "description": description,
@@ -387,14 +508,22 @@ class CoreFeatureStore(BaseFeatureStore):
 
             obj.update_from_dict(to_update)
 
-    def transform(self, name, check, namespace=None, from_features=[]):
+    def transform(self, name: str, check: Column, namespace: Optional[str] = None, from_features: List = []):
         """Decorator for creating/updating virtual (transformed) features.
+
         Use this on a function that accepts a dataframe input and returns an output dataframe
         of tranformed values.
-        Args:
-            name (str): feature to update.
-            namespace (str, optional): namespace, if not included in feature name.
-            from_features (list): list of features which should be transformed by this one
+
+        Parameters
+        ----------
+        name: str
+            feature to update.
+        check: Column
+            data validation check.
+        namespace: str, optional
+            namespace, if not included in feature name.
+        from_features: list
+            list of features which should be transformed by this one
         """
 
         def decorator(func):
@@ -415,6 +544,7 @@ class CoreFeatureStore(BaseFeatureStore):
             else:
                 # Create a new feature
                 self.create_feature(to_name, namespace=to_namespace, check=check, **payload)
+
             # Call the transform
             def wrapped_func(*args, **kwargs):
                 return func(*args, **kwargs)

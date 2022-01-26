@@ -1,12 +1,14 @@
-from ._base import BaseStore
 import posixpath
-import dask.dataframe as dd
-import dask
-import pandas as pd
-import numpy as np
-import pyarrow as pa
-import fsspec
 import warnings
+
+import dask
+import dask.dataframe as dd
+import fsspec
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+
+from ._base import BaseStore
 
 
 class Store(BaseStore):
@@ -92,7 +94,7 @@ class Store(BaseStore):
         if kwargs.get("partitions"):
             for p in kwargs.get("partitions"):
                 filters.append(("partition", "==", p))
-        filters = [filters] if filters else None
+        filters = filters if filters else None
         # Read the data
         feature_path = self._full_feature_path(name)
         try:
@@ -105,7 +107,7 @@ class Store(BaseStore):
             ddf = ddf.repartition(partition_size="25MB")
         except PermissionError as e:
             raise e
-        except Exception as e:
+        except Exception:
             # No data available
             empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"]).set_index("time")
             ddf = dd.from_pandas(empty_df, chunksize=1)
@@ -180,7 +182,7 @@ class Store(BaseStore):
             )
         else:
             # Filter on date range
-            ddf = ddf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]
+            ddf = ddf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
         #  Repartition to remove empty chunks
         ddf = ddf.repartition(partition_size="25MB")
         return ddf
@@ -268,7 +270,7 @@ class Store(BaseStore):
             # Repartition to optimise files on exported dataset
             ddf = ddf.repartition(partition_size="25MB")
             return ddf
-        except Exception as e:
+        except Exception:
             # No data available
             return None
 

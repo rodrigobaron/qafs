@@ -1,8 +1,3 @@
-"""
-Exception raised by Feature Store objects
-"""
-
-
 class FeatureStoreException(Exception):
     """General feature store exception."""
 

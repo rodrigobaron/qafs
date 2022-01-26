@@ -1,12 +1,12 @@
-from . import connection as conn
-from . import model as model
-from . import version as version
-from alembic.operations import Operations
 from alembic.migration import MigrationContext
-from sqlalchemy import String, Column
+from alembic.operations import Operations
+from packaging.version import parse
+from sqlalchemy import Column, String
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
-from packaging.version import parse
+
+from . import model as model
+from . import version as version
 
 
 def upgrade(engine):
@@ -25,7 +25,7 @@ def upgrade(engine):
         return
 
     if parse(current_version) < parse(version.__version__):
-        print(f"Upgrading database schema...")
+        print("Upgrading database schema...")
         with engine.connect() as connection:
             context = MigrationContext.configure(connection)
             op = Operations(context)

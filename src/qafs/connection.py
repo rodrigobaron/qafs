@@ -1,7 +1,8 @@
+from contextlib import contextmanager
+
+from pandas.io import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from contextlib import contextmanager
-from pandas.io import json
 
 
 def connect(conn, connect_args={}):
@@ -16,7 +17,7 @@ def session_scope(session_maker):
     try:
         yield session
         session.commit()
-    except:
+    except Exception:
         session.rollback()
         raise
     finally:

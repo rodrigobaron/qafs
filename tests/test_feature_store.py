@@ -1,22 +1,18 @@
-import pytest
-
-import random
+import json
 import os
+import posixpath
+import random
 import string
 
+import dask.dataframe as dd
 import fsspec
-import posixpath
-
 import numpy as np
 import pandas as pd
-import dask.dataframe as dd
-
 import pandera as pa
-from pandera import Column
-from pandera import io
+import pytest
+from pandera import Column, io
 
 import qafs
-
 
 backends = [json.loads(os.environ[key]) for key in os.environ.keys() if key.startswith("CLOUDSTORE_")]
 backends.append({"path": "/tmp", "storage_options": {}, "backend": "pandas"})
@@ -582,7 +578,7 @@ def test_transforms(fs):
     def passthrough(df):
         return df
 
-    @fs.transform("test/recursive-feature", from_features=["test/recursive-feature-2"], check=Column(pa.Float))
+    @fs.transform("test/recursive-feature", from_features=["test/recursive-feature-2"], check=Column(pa.Float))  # type: ignore
     def passthrough(df):
         return df
 

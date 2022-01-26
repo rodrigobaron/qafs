@@ -1,20 +1,34 @@
-import sqlalchemy as sa
-from sqlalchemy import Table, Column, ForeignKey
-from sqlalchemy import Integer, String, Boolean, JSON, Enum, DateTime
-from sqlalchemy.orm import relationship, validates
-from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.ext.hybrid import hybrid_property
+import copy
 import datetime
 import re
-import copy
 import types
-from . import utils
-from . import timeseries as ts
+from typing import TYPE_CHECKING, Any
+
+import sqlalchemy as sa
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+)
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship, validates
+
 from . import storage
-from . import connection as conn
+from . import timeseries as ts
+from . import utils
+
+if TYPE_CHECKING:
+    hybrid_property = property
+else:
+    from sqlalchemy.ext.hybrid import hybrid_property
 
 
-Base = declarative_base()
+Base = declarative_base()  # type: Any
 valid_name = re.compile(r"^[a-zA-Z0-9\.#_-]+$")
 partitions = Enum("year", "date", name="partition")
 
@@ -45,8 +59,6 @@ class FeatureStoreMixin(object):
             return
         if "name" in payload and self.name:
             raise ValueError(f"Cannot change name of {self.__class__.__name__}: use clone instead")
-        if "namespace" in payload and self.namespace:
-            raise ValueError(f"Cannot change namespace of {self.__class__.__name__}: use clone instead")
         for key, value in payload.items():
             if key == "meta" or key == "metadata":
                 # See https://amercader.net/blog/beware-of-json-fields-in-sqlalchemy/
@@ -75,8 +87,6 @@ class FeatureStoreVersion(Base):
 class Namespace(Base, FeatureStoreMixin):
     __tablename__ = "namespace"
 
-    # url = Column(String, nullable=False, unique=True)
-    # storage_options = Column(JSON, nullable=False, default={})
     backend = Column(String, nullable=True, default="pandas")
 
     @hybrid_property
@@ -264,7 +274,7 @@ class Feature(Base, FeatureStoreMixin):
     def import_data_from(self, other, url, storage_options):
         # Copy data over from another feature
         if not isinstance(other, self.__class__):
-            raise ValueError(f"Must clone from another {cls.__name__}")
+            raise ValueError(f"Must clone from another {other.__name__}")
         # Get location of other feature to copy from
         store_from = other.namespace_object._backend(url, storage_options)
         store_to = self.namespace_object._backend(url, storage_options)

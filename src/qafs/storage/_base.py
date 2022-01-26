@@ -1,6 +1,5 @@
-from abc import ABC, abstractmethod
-import functools
 import types
+from abc import ABC, abstractmethod
 
 
 class BaseStore(ABC):
