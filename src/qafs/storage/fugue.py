@@ -1,11 +1,11 @@
 import posixpath
 import warnings
 
-from fugue import FugueWorkflow, PartitionSpec
 import fsspec
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+from fugue import FugueWorkflow, PartitionSpec, NativeExecutionEngine
 
 from ._base import BaseStore
 
@@ -15,6 +15,13 @@ class Store(BaseStore):
 
     def __init__(self, url, storage_options=None):
         super().__init__(url, storage_options=storage_options if storage_options is not None else {})
+
+    def _create_engine(self):
+        return NativeExecutionEngine()
+    
+    def _to_pandas(self, df):
+        # native have no op
+        return df
 
     @staticmethod
     def _clean_dict(d):
@@ -70,8 +77,13 @@ class Store(BaseStore):
         #         schema[field.name] = field.type
         try:
             mode = "append" if kwargs.get("append", False) else "overwrite"
-            ddf.save(feature_path, mode="overwrite", fmt="parquet", single=False, 
-            partition=PartitionSpec(num=4, by=["partition"]))
+            ddf.save(
+                feature_path,
+                mode="overwrite",
+                fmt="parquet",
+                single=False,
+                partition=PartitionSpec(by=["partition"]),
+            )
             # ddf.to_parquet(
             #     feature_path,
             #     engine="pyarrow",
@@ -112,8 +124,8 @@ class Store(BaseStore):
             raise e
         except Exception:
             # No data available
-            empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"])#.set_index("time")
-            ddf = dag.df(df)                
+            empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"])  # .set_index("time")
+            ddf = dag.df(df)
             # ddf = dd.from_pandas(empty_df, chunksize=1)
 
         def _clean_df(ddf: pd.DataFrame, time_travel, **kwargs) -> pd.DataFrame:
@@ -136,6 +148,7 @@ class Store(BaseStore):
             return ddf
 
         ddf = ddf.transform(_clean_df, schema="*-partition", params={"time_travel": time_travel, "kwargs": kwargs})
+        ddf.persist()
         return ddf
 
     def ls(self):
@@ -144,12 +157,11 @@ class Store(BaseStore):
         return feature_names
 
     def load(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
-                
-        def _load(ddf:pd.DataFrame, from_date, to_date, freq) -> pd.DataFrame:
+        def _load(ddf: pd.DataFrame, from_date, to_date, freq) -> pd.DataFrame:
             if not from_date:
-                from_date = ddf.index.min()#.compute()  # First value in data
+                from_date = ddf['time'].min()  # .compute()  # First value in data
             if not to_date:
-                to_date = ddf.index.max()#.compute()  # Last value in data
+                to_date = ddf['time'].max()  # .compute()  # Last value in data
             if pd.Timestamp(to_date) < pd.Timestamp(from_date):
                 to_date = from_date
             # pdf = ddf.compute()
@@ -159,23 +171,24 @@ class Store(BaseStore):
             pdf = pdf.sort_values("created_time").groupby("time").last()
             # Apply resampling/date filtering
             if freq:
-                samples = pd.DataFrame({'time': pd.date_range(from_date, to_date, freq=freq)})
+                samples = pd.DataFrame({'created_time': pd.date_range(from_date, to_date, freq=freq)})
                 pdf = pd.merge(
-                    pd.merge(pdf, samples, left_index=True, right_index=True, how="outer").ffill(),
+                    pd.merge(pdf, samples, left_on="created_time", right_on="created_time", how="outer").ffill(),
                     samples,
                     # left_index=True,
                     # right_index=True,
-                    left_on="time",
-                    right_on="time",
+                    left_on="created_time",
+                    right_on="created_time",
                     how="right",
                 )
             else:
                 # Filter on date range
                 pdf = pdf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
-            
+
+            pdf = pdf.sort_values(["time", "created_time"])
             return pdf.reset_index()
-        
-        with FugueWorkflow() as dag:
+
+        with FugueWorkflow(self._create_engine()) as dag:
             # Find the last value _before_ time range to carry over
             last_before = from_date
             if from_date:
@@ -186,36 +199,43 @@ class Store(BaseStore):
             ddf = ddf.transform(_load, schema="*", params={"from_date": from_date, "to_date": to_date, "freq": freq})
             ddf.yield_dataframe_as("df")
             ddf = dag.run()['df'].native
-        
-        return ddf.set_index("time")
+
+        return self._to_pandas(ddf)
 
     def _range(self, dag, name, **kwargs):
         ddf = self._read(dag, name, **kwargs)
-        
-        def _head(df: pd.DataFrame) -> pd.DataFrame:
-            return df.head(1)
-        
-        def _tail(df: pd.DataFrame) -> pd.DataFrame:
-            return df.tail(1)
 
         # Don't warn when querying empty feature
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            head_dag = ddf.transform(_head, schema="*") #ddf.head(1)
-            head_dag.yield_dataframe_as("head")
+            ddf.yield_dataframe_as("df")
+            df = dag.run()["df"].native
+            
+            first = df.head(1)
+            last = df.tail(1)
 
-            tail_dag = ddf.transform(_tail, schema="*") #ddf.head(1)
-            tail_dag.yield_dataframe_as("tail")
+            first_is_empty = len(first) == 0
+            last_is_empty = len(last) == 0
+            
+            first_obj, last_obj = None, None
 
-            results = dag.run()
-            first = results["head"].native
-            last = results["tail"].native
-        
+            if not first_is_empty:
+                if isinstance(first, list):
+                    first_obj = first[0]
+                else:
+                    first_obj = first.iloc[0]
+            
+            if not last_is_empty:
+                if isinstance(last, list):
+                    last_obj = last[0]
+                else:
+                    last_obj = last.iloc[0]
+            
         first = (
-            {"time": None, "value": None} if first.empty else {"time": first.index[0], "value": first["value"].iloc[0]}
+            {"time": None, "value": None} if first_is_empty else {"time": first_obj["time"], "value": first_obj["value"]}
         )
-        last = {"time": None, "value": None} if last.empty else {"time": last.index[0], "value": last["value"].iloc[0]}
+        last = {"time": None, "value": None} if last_is_empty else {"time": last_obj["time"], "value": last_obj["value"]}
         return first, last
 
     def first(self, name, **kwargs):
@@ -238,7 +258,7 @@ class Store(BaseStore):
         # else:
         #     raise ValueError("Data must be supplied as a Pandas or Dask DataFrame")
 
-        def _save(ddf:pd.DataFrame, **kwargs) -> pd.DataFrame:
+        def _save(ddf: pd.DataFrame, **kwargs) -> pd.DataFrame:
             # Check value columm
             if "value" not in ddf.columns:
                 raise ValueError("DataFrame must contain a value column")
@@ -270,8 +290,10 @@ class Store(BaseStore):
                 ddf = ddf.map_partitions(lambda df: df.assign(value=df.value.apply(pd.io.json.dumps)))
             return ddf
 
-        with FugueWorkflow() as dag:
-            ddf = dag.df(df).transform(_save, params={'kwargs': kwargs}, schema="*, partition:datetime,created_time:datetime")
+        with FugueWorkflow(self._create_engine()) as dag:
+            ddf = dag.df(df).transform(
+                _save, params={'kwargs': kwargs}, schema="*, partition:datetime,created_time:datetime"
+            )
             # Save
             self._write(name, ddf, append=True)
 
