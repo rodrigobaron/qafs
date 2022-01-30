@@ -4,8 +4,7 @@ import warnings
 import fsspec
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-from fugue import FugueWorkflow, PartitionSpec, NativeExecutionEngine
+from fugue import FugueWorkflow, NativeExecutionEngine, PartitionSpec
 
 from ._base import BaseStore
 
@@ -18,7 +17,7 @@ class Store(BaseStore):
 
     def _create_engine(self):
         return NativeExecutionEngine()
-    
+
     def _to_pandas(self, df):
         # native have no op
         return df
@@ -76,7 +75,7 @@ class Store(BaseStore):
         #     if field.name in ["value", "partition"]:
         #         schema[field.name] = field.type
         try:
-            mode = "append" if kwargs.get("append", False) else "overwrite"
+            # mode = "append" if kwargs.get("append", False) else "overwrite"
             ddf.save(
                 feature_path,
                 mode="overwrite",
@@ -125,7 +124,7 @@ class Store(BaseStore):
         except Exception:
             # No data available
             empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"])  # .set_index("time")
-            ddf = dag.df(df)
+            ddf = dag.df(empty_df)
             # ddf = dd.from_pandas(empty_df, chunksize=1)
 
         def _clean_df(ddf: pd.DataFrame, time_travel, **kwargs) -> pd.DataFrame:
@@ -211,13 +210,13 @@ class Store(BaseStore):
 
             ddf.yield_dataframe_as("df")
             df = dag.run()["df"].native
-            
+
             first = df.head(1)
             last = df.tail(1)
 
             first_is_empty = len(first) == 0
             last_is_empty = len(last) == 0
-            
+
             first_obj, last_obj = None, None
 
             if not first_is_empty:
@@ -225,17 +224,21 @@ class Store(BaseStore):
                     first_obj = first[0]
                 else:
                     first_obj = first.iloc[0]
-            
+
             if not last_is_empty:
                 if isinstance(last, list):
                     last_obj = last[0]
                 else:
                     last_obj = last.iloc[0]
-            
+
         first = (
-            {"time": None, "value": None} if first_is_empty else {"time": first_obj["time"], "value": first_obj["value"]}
+            {"time": None, "value": None}
+            if first_is_empty
+            else {"time": first_obj["time"], "value": first_obj["value"]}
         )
-        last = {"time": None, "value": None} if last_is_empty else {"time": last_obj["time"], "value": last_obj["value"]}
+        last = (
+            {"time": None, "value": None} if last_is_empty else {"time": last_obj["time"], "value": last_obj["value"]}
+        )
         return first, last
 
     def first(self, name, **kwargs):
@@ -282,7 +285,7 @@ class Store(BaseStore):
             else:
                 ddf = ddf.assign(created_time=ddf.created_time.astype("datetime64[ns]"))
             # Check for extraneous columns
-            extraneous = set(ddf.columns) - set(["created_time", "value", "partition"])
+            # extraneous = set(ddf.columns) - set(["created_time", "value", "partition"])
             # if len(extraneous) > 0:
             #     raise ValueError(f"DataFrame contains extraneous columns: {extraneous}")
             # Serialize to JSON if required
@@ -308,13 +311,16 @@ class Store(BaseStore):
         # Read the data
         feature_path = self._full_feature_path(name)
         try:
-            ddf = dd.read_parquet(
-                feature_path,
-                engine="pyarrow",
-                storage_options=self._clean_dict(self.storage_options),
-            )
+            # ddf = dd.read_parquet(
+            #     feature_path,
+            #     engine="pyarrow",
+            #     storage_options=self._clean_dict(self.storage_options),
+            # )
             # Repartition to optimise files on exported dataset
-            ddf = ddf.repartition(partition_size="25MB")
+            # ddf = ddf.repartition(partition_size="25MB")
+            with FugueWorkflow(self._create_engine()) as dag:
+                ddf = dag.load(feature_path, fmt="parquet")
+
             return ddf
         except Exception:
             # No data available
