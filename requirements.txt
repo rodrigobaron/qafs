@@ -7,3 +7,5 @@ requests>=2
 requests_oauthlib>=1.1
 cloudpickle
 pandera[io]>=0.8.1
+pyspark
+fugue[spark]

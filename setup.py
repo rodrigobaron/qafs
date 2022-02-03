@@ -1,6 +1,6 @@
-from setuptools import find_namespace_packages, setup, find_packages
 import re
 
+from setuptools import find_namespace_packages, find_packages, setup
 
 VERSION = open('VERSION').read()
 LONG_DESCRIPTION = open('README.md').read()
