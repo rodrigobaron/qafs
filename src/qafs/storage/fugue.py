@@ -69,6 +69,8 @@ class Store(BaseStore):
     def _write(self, name, ddf, **kwargs):
         # Write to output location
         feature_path = self._full_feature_path(name)
+        def _save(df: pyspark.sql.DataFrame, path:str, by:Any) -> None:
+            df.repartition(*by).write.partitionBy(by).parquet(path)
         # Build schema
         # schema = {"time": pa.timestamp("ns"), "created_time": pa.timestamp("ns")}
         # for field in pa.Table.from_pandas(ddf.head()).schema:
@@ -76,13 +78,14 @@ class Store(BaseStore):
         #         schema[field.name] = field.type
         try:
             # mode = "append" if kwargs.get("append", False) else "overwrite"
-            ddf.save(
-                feature_path,
-                mode="overwrite",
-                fmt="parquet",
-                single=False,
-                partition=PartitionSpec(by=["partition"]),
-            )
+#            ddf.save(
+#                feature_path,
+#                mode="overwrite",
+#                fmt="parquet",
+#                single=False,
+#                partition=PartitionSpec(by=["partition"]),
+#            )
+            ddf.output(_save, params=dict(path=feature_path,by=["partition"]))
             # ddf.to_parquet(
             #     feature_path,
             #     engine="pyarrow",
