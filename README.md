@@ -16,6 +16,8 @@
     Simple and scalable feature store with data quality checks.
 </h3>
 
+## WARN: API WILL BE REWRITE FOR SIMPLICITY
+
 feature store aim to solve the data management problems when building Machine Learning applications. However the data quality is a component which data teams need integrate and handle as separated component. This project join both concepts keeping the data quality closely coupled with data transformations making necessary a minimal data verification check and possibiliting the data/transformations check evolve during the projects.
 
 For that **qafs** have a strong dependecy with [pandera](https://pandera.readthedocs.io/) to build the data validations.
