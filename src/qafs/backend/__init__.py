@@ -5,16 +5,16 @@ available_backends = {}
 
 
 def _import_backend(name: str):
-    """Import store backend.
+    """Import backend.
 
     Parameters
     ----------
     name: str
-        store backend name.
+        backend name.
     """
     try:
         mod = importlib.import_module("." + name, __name__)
-        available_backends[name] = mod.Store
+        available_backends[name] = mod.Backend
     except ImportError:
         pass
 

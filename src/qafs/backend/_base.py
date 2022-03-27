@@ -2,14 +2,14 @@ import types
 from abc import ABC, abstractmethod
 
 
-class BaseStore(ABC):
+class BaseBackend(ABC):
     """Base storage class for timeseries data.
     Sub-class this to add additional storage backends.
     """
 
-    def __init__(self, url, storage_options={}):
-        self.url = url
-        self.storage_options = storage_options
+    def __init__(self, storage, options={}):
+        self.storage = storage
+        self.options = options
 
     @abstractmethod
     def ls(self):

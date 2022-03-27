@@ -1,19 +1,18 @@
-from .core import CoreFeatureStore
-from .version import __version__
+from .core import FeatureStore
+from .storage import LocalStorage
 
+# def FeatureStore(connection_string: str = None, **kwargs):
+#     """Method to create Feature Store objects.
 
-def FeatureStore(connection_string: str = None, **kwargs):
-    """Method to create Feature Store objects.
+#     Parameters
+#     ----------
+#     connection_string: str
+#         SQLAlchemy connection string for feature store metadata database
+#         **kwargs: Additional options to be passed to the Feature Store constructor.
 
-    Parameters
-    ----------
-    connection_string: str
-        SQLAlchemy connection string for feature store metadata database
-        **kwargs: Additional options to be passed to the Feature Store constructor.
-
-    Returns
-    -------
-    CoreFeatureStore
-        Feature Store object.
-    """
-    return CoreFeatureStore(connection_string=connection_string, **kwargs)
+#     Returns
+#     -------
+#     CoreFeatureStore
+#         Feature Store object.
+#     """
+#     return CoreFeatureStore(connection_string=connection_string, **kwargs)

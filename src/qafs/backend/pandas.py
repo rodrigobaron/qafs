@@ -8,14 +8,14 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from ._base import BaseStore
+from ._base import BaseBackend
 
 
-class Store(BaseStore):
-    """Dask-backed timeseries data storage."""
+class Backend(BaseBackend):
+    """Pandas-backed timeseries data storage."""
 
-    def __init__(self, url, storage_options=None):
-        super().__init__(url, storage_options=storage_options if storage_options is not None else {})
+    def __init__(self, storage, options=None):
+        super().__init__(storage, options=options if options is not None else {})
 
     @staticmethod
     def _clean_dict(d):
@@ -26,7 +26,7 @@ class Store(BaseStore):
     def _fs(self, name=None):
         fs, fs_token, paths = fsspec.get_fs_token_paths(
             self.url,
-            storage_options=self._clean_dict(self.storage_options),
+            storage_options=self._clean_dict(self.options),
         )
         if name:
             feature_path = posixpath.join(paths[0], "feature", name)
@@ -35,7 +35,7 @@ class Store(BaseStore):
         return fs, feature_path
 
     def _full_feature_path(self, name):
-        return posixpath.join(self.url, "feature", name)
+        return posixpath.join(str(self.storage), "feature", name)
 
     def _list_partitions(self, name, n=None, reverse=False):
         """List the available partitions for a feature."""
@@ -79,7 +79,7 @@ class Store(BaseStore):
                 partition_on="partition",
                 ignore_divisions=True,
                 schema=schema,
-                storage_options=self._clean_dict(self.storage_options),
+                storage_options=self._clean_dict(self.options),
             )
         except Exception as e:
             raise RuntimeError(f"Unable to save data to {feature_path}: {str(e)}")
@@ -147,34 +147,14 @@ class Store(BaseStore):
             to_date = ddf.index.max().compute()  # Last value in data
         if pd.Timestamp(to_date) < pd.Timestamp(from_date):
             to_date = from_date
+        pdf = ddf.compute()
         # Keep only last created_time for each index timestamp
-        delayed_apply = dask.delayed(
-            # Use pandas on each dask partition
-            lambda x: x.reset_index()
-            .set_index("created_time")
-            .sort_index()
-            .groupby("time")
-            .last()
-        )
-        ddf = dd.from_delayed([delayed_apply(d) for d in ddf.to_delayed()])
-        #  Repartition to remove empty chunks
-        ddf = ddf.repartition(partition_size="25MB")
+        pdf = pdf.reset_index().set_index("created_time").sort_index().groupby("time").last()
         # Apply resampling/date filtering
         if freq:
-            # Index samples for final dataframe
-            samples = dd.from_pandas(
-                pd.DataFrame(index=pd.date_range(from_date, to_date, freq=freq)),
-                chunksize=100000,
-            )
-            ddf = dd.merge(
-                # Interpolate
-                dd.merge(
-                    ddf,
-                    samples,
-                    left_index=True,
-                    right_index=True,
-                    how="outer",
-                ).ffill(),
+            samples = pd.DataFrame(index=pd.date_range(from_date, to_date, freq=freq))
+            pdf = pd.merge(
+                pd.merge(pdf, samples, left_index=True, right_index=True, how="outer").ffill(),
                 samples,
                 left_index=True,
                 right_index=True,
@@ -182,10 +162,8 @@ class Store(BaseStore):
             )
         else:
             # Filter on date range
-            ddf = ddf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
-        #  Repartition to remove empty chunks
-        ddf = ddf.repartition(partition_size="25MB")
-        return ddf
+            pdf = pdf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
+        return pdf
 
     def _range(self, name, **kwargs):
         ddf = self._read(name, **kwargs)

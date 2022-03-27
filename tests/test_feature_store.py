@@ -129,8 +129,6 @@ def test_utils(fs):
 
 
 def test_namespaces(fs, filesystem):
-    print("Testing namespaces...")
-
     ns1 = random_string(5)
     ns2 = random_string(5)
 

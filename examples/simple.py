@@ -4,7 +4,9 @@ from pandera import Check, Column, DataFrameSchema, io
 
 import qafs
 
-fs = qafs.FeatureStore(connection_string='sqlite:///test.sqlite', url='/tmp/featurestore/example')
+fs = qafs.FeatureStore(
+    connection_string='sqlite:///test.sqlite', url='/tmp/featurestore/example', backend='fugue_spark'
+)
 
 fs.create_namespace('example', description='Example datasets')
 fs.create_feature('example/numbers', description='Timeseries of numbers', check=Column(pa.Int, Check.greater_than(0)))
@@ -12,7 +14,6 @@ fs.create_feature('example/numbers', description='Timeseries of numbers', check=
 
 dts = pd.date_range('2020-01-01', '2021-02-09')
 df = pd.DataFrame({'time': dts, 'numbers': list(range(1, len(dts) + 1))})
-
 fs.save_dataframe(df, name='numbers', namespace='example')
 
 
