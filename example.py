@@ -3,6 +3,7 @@ import pandera as pa
 from pandera import Check, Column, DataFrameSchema, io
 
 import qafs
+from qafs import InFeature, OutFeature
 
 # fs = qafs.FeatureStore(
 #     connection_string='sqlite:///test.sqlite', url='/tmp/featurestore/example', backend='fugue_spark'
@@ -42,18 +43,17 @@ fs.save_df(df, name='numbers', namespace='example')
 def squared(df):
     return df ** 2
 
-
 df_query = fs.load_features(
     features=[
-        OutFeatures(name='numbers', namespace='example'),
-        OutFeatures(name='squared', namespace='example')
+        OutFeature(name='numbers', namespace='example'),
+        # OutFeature(name='squared', namespace='example')
     ],
     from_date='2021-01-01',
     to_date='2021-01-31'
 )
-print(df_query.tail(1))
+print(df_query.shape)
 
-fs.materialize(features=[
-    OutFeatures(name='numbers', namespace='example'),
-    OutFeatures(name='squared', namespace='example')
-])
+# fs.materialize(features=[
+#     OutFeature(name='numbers', namespace='example'),
+#     OutFeature(name='squared', namespace='example')
+# ])

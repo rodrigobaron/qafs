@@ -1,5 +1,6 @@
 import posixpath
 import warnings
+import os
 
 import dask
 import dask.dataframe as dd
@@ -25,7 +26,7 @@ class Backend(BaseBackend):
 
     def _fs(self, name=None):
         fs, fs_token, paths = fsspec.get_fs_token_paths(
-            self.url,
+            self.storage,
             storage_options=self._clean_dict(self.options),
         )
         if name:
@@ -44,8 +45,15 @@ class Backend(BaseBackend):
             objects = fs.ls(feature_path)
         except FileNotFoundError:
             return []
-        partitions = [obj for obj in objects if obj.startswith("partition=")]
-        partitions = [p.split("=")[1] for p in partitions]
+        
+        partitions = []
+        for _obj in objects:
+            obj = _obj.replace(feature_path + os.path.sep, '')
+            if obj.startswith("partition="):
+                partitions.append(obj.split("=")[1])
+
+        # partitions = [obj for obj in objects if obj.startswith("partition=")]
+        # partitions = [p.split("=")[1] for p in partitions]
         partitions = sorted(partitions, reverse=reverse)
         if n:
             partitions = partitions[:n]
@@ -84,13 +92,16 @@ class Backend(BaseBackend):
         except Exception as e:
             raise RuntimeError(f"Unable to save data to {feature_path}: {str(e)}")
 
-    def _read(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
+    def _read(self, name, from_date=None, to_date=None, freq=None, time_travel=None, exactly_date=None, **kwargs):
         # Identify which partitions to read
         filters = []
-        if from_date:
-            filters.append(("time", ">=", pd.Timestamp(from_date)))
-        if to_date:
-            filters.append(("time", "<=", pd.Timestamp(to_date)))
+        if exactly_date:
+            filters.append(("time", "==", pd.Timestamp(exactly_date)))
+        else:
+            if from_date:
+                filters.append(("time", ">=", pd.Timestamp(from_date)))
+            if to_date:
+                filters.append(("time", "<=", pd.Timestamp(to_date)))
         if kwargs.get("partitions"):
             for p in kwargs.get("partitions"):
                 filters.append(("partition", "==", p))
@@ -102,15 +113,15 @@ class Backend(BaseBackend):
                 feature_path,
                 engine="pyarrow",
                 filters=filters,
-                storage_options=self._clean_dict(self.storage_options),
+                storage_options=self._clean_dict(self.options),
             )
             ddf = ddf.repartition(partition_size="25MB")
         except PermissionError as e:
             raise e
-        except Exception:
-            # No data available
-            empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"]).set_index("time")
-            ddf = dd.from_pandas(empty_df, chunksize=1)
+        # except Exception:
+        #     # No data available
+        #     empty_df = pd.DataFrame(columns=["time", "created_time", "value", "partition"]).set_index("time")
+        #     ddf = dd.from_pandas(empty_df, chunksize=1)
         if "partition" in ddf.columns:
             ddf = ddf.drop(columns="partition")
         # Apply time-travel
@@ -135,21 +146,20 @@ class Backend(BaseBackend):
         return feature_names
 
     def load(self, name, from_date=None, to_date=None, freq=None, time_travel=None, **kwargs):
-        # Find the last value _before_ time range to carry over
-        last_before = from_date
-        if from_date:
-            _, last_before = self._range(name, to_date=from_date, time_travel=time_travel)
-            last_before = last_before["time"]
-        ddf = self._read(name, last_before, to_date, freq, time_travel, **kwargs)
+        ddf = self._read(name, from_date, to_date, freq, time_travel, **kwargs)
+        
         if not from_date:
             from_date = ddf.index.min().compute()  # First value in data
         if not to_date:
             to_date = ddf.index.max().compute()  # Last value in data
         if pd.Timestamp(to_date) < pd.Timestamp(from_date):
             to_date = from_date
+
         pdf = ddf.compute()
+        
         # Keep only last created_time for each index timestamp
         pdf = pdf.reset_index().set_index("created_time").sort_index().groupby("time").last()
+
         # Apply resampling/date filtering
         if freq:
             samples = pd.DataFrame(index=pd.date_range(from_date, to_date, freq=freq))
@@ -163,28 +173,53 @@ class Backend(BaseBackend):
         else:
             # Filter on date range
             pdf = pdf.loc[pd.Timestamp(from_date) : pd.Timestamp(to_date)]  # noqa: E203
+
         return pdf
 
-    def _range(self, name, **kwargs):
-        ddf = self._read(name, **kwargs)
-        # Don't warn when querying empty feature
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            first = ddf.head(1)
-            last = ddf.tail(1)
-        first = (
-            {"time": None, "value": None} if first.empty else {"time": first.index[0], "value": first["value"].iloc[0]}
-        )
-        last = {"time": None, "value": None} if last.empty else {"time": last.index[0], "value": last["value"].iloc[0]}
-        return first, last
+    # def _range(self, name, **kwargs):
+    #     partitions = self._list_partitions(name)
+    #     ddf = self._read(name, **kwargs)
+        
+    #     # Don't warn when querying empty feature
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    #         first = ddf.head(1)
+    #         last = ddf.tail(1)
+        
+    #     first = (
+    #         {"time": None, "value": None} if first.empty else {"time": first.index[0], "value": first["value"].iloc[0]}
+    #     )
+        
+    #     last = {"time": None, "value": None} if last.empty else {"time": last.index[0], "value": last["value"].iloc[0]}
+    #     return first, last
 
-    def first(self, name, **kwargs):
-        first, _ = self._range(name, **kwargs)
-        return first["value"]
+    def first(self, name, from_date=None):
+        partitions = self._list_partitions(name)
+        ps = pd.to_datetime(partitions).sort_values()
 
-    def last(self, name, **kwargs):
-        _, last = self._range(name, **kwargs)
-        return last["value"]
+        if from_date:
+            ps = ps[ps >= pd.Timestamp(from_date)]
+
+        first = ps.head(1)
+        if first.empty:
+            return None
+        
+        ddf = self._read(name, exactly_date=first)
+        return ddf["value"]
+
+    def last(self, name, to_date=None):
+        partitions = self._list_partitions(name)
+        ps = pd.to_datetime(partitions).sort_values()
+
+        if to_date:
+            ps = ps[ps <= pd.Timestamp(to_date)]
+
+        last = ps.tail(1)
+        if last.empty:
+            return None
+        
+        ddf = self._read(name, exactly_date=last)
+        return ddf["value"]
 
     def save(self, name, df, **kwargs):
         if df.empty:

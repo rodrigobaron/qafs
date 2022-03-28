@@ -1,4 +1,4 @@
-from .core import FeatureStore
+from .core import FeatureStore, InFeature, OutFeature
 from .storage import LocalStorage
 
 # def FeatureStore(connection_string: str = None, **kwargs):

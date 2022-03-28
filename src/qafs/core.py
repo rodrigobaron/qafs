@@ -106,9 +106,12 @@ class FeatureStore(object):
             key/value pairs of metadata.
         """
         with conn.session_scope(self.session_maker) as session:
-            obj = model.Namespace()
-            obj.update_from_dict({"name": name, "description": description, "meta": meta})
-            session.add(obj)
+            r = session.query(model.Namespace)
+            r = r.filter_by(name=name)
+            if not r.one_or_none():
+                obj = model.Namespace()
+                obj.update_from_dict({"name": name, "description": description, "meta": meta})
+                session.add(obj)
 
     def update_namespace(self, name: str, description: Optional[str] = None, meta: Optional[Dict] = {}):
         """Update a namespace in the feature store.
@@ -244,7 +247,7 @@ class FeatureStore(object):
         partition: Optional[str] = None,
         serialized: Optional[bool] = None,
         transform: Optional[str] = None,
-        meta: Optional[Dict] = {},
+        meta: Optional[Dict] = None,
     ):
         """Create a new feature in the feature store.
 
@@ -269,6 +272,7 @@ class FeatureStore(object):
         meta: dict, optional
             key/value pairs of metadata.
         """
+        meta = meta if meta is not None else {}
         ls = self._list(model.Namespace, namespace=namespace)
         if ls.empty:
             raise MissingFeatureException(f"{namespace} namespace does not exist")
@@ -277,6 +281,22 @@ class FeatureStore(object):
         check_yaml = io.to_yaml(DataFrameSchema({name: check}))
 
         with conn.session_scope(self.session_maker) as session:
+            r = session.query(model.Feature)
+            if namespace:
+                r = r.filter_by(namespace=namespace)
+            if name:
+                r = r.filter_by(name=name)
+            # Update transformation
+            if r.one_or_none():
+                return self.update_feature(
+                    name=name,
+                    namespace=namespace,
+                    description=description,
+                    transform=transform,
+                    check=check,
+                    meta=meta,
+                )
+
             obj = model.Feature()
             obj.update_from_dict(
                 {
@@ -418,7 +438,7 @@ class FeatureStore(object):
                     feature_df = df[[*df.columns.difference(feature_columns), feature_name]]
                     self.save_df(feature_df, name=feature_name, namespace=namespace)
 
-    def load_dataframe(
+    def load_features(
         self,
         features: Union[str, list, pd.DataFrame],
         from_date: Optional[str] = None,
@@ -449,16 +469,16 @@ class FeatureStore(object):
         """
         dfs = []
         # Load each requested feature
-        for f in self._unpack_list(features):
-            namespace, name = f
+        for f in features:
+            namespace, name = f.namespace, f.name
             with conn.session_scope(self.session_maker) as session:
                 feature = session.query(model.Feature).filter_by(name=name, namespace=namespace).one_or_none()
                 if not feature:
-                    raise MissingFeatureException(f"No feature named {name} exists in {namespace}")
+                    raise MissingFeatureException(f"No feature named '{name}' exists in '{namespace}'")
 
                 # Load individual feature
                 df = feature.load(
-                    self.storage,
+                    str(self.storage),
                     from_date=from_date,
                     to_date=to_date,
                     freq=freq,
@@ -538,12 +558,12 @@ class FeatureStore(object):
 
         def decorator(func):
             # Create or update feature with transform
-            computed_from = [f"{ns}/{n}" for ns, n in self._unpack_list(from_features)]
-            for feature in computed_from:
-                assert self._exists(
-                    model.Feature, name=feature
-                ), f"{feature} does not exist in the feature store"
-                assert not self.list_features(name=feature).empty, f"{feature} does not exist in the feature store"
+            computed_from = [str(f) for f in from_features]
+            for feature in from_features:
+                # assert self._exists(
+                #     model.Feature, name=feature
+                # ), f"{feature} does not exist in the feature store"
+                assert not self.list_features(name=feature.name, namespace=feature.namespace).empty, f"'{feature.namespace}/{feature.name}' does not exist in the feature store"
             transform = {"function": func, "args": computed_from}
             payload = {"transform": transform, "description": func.__doc__}
             if not self.list_features(namespace=namespace, name=name).empty:
@@ -551,7 +571,7 @@ class FeatureStore(object):
                 self.update_feature(name, namespace=namespace, check=check, **payload)
             else:
                 # Create a new feature
-                self.create_feature(to_name, namespace=to_namespace, check=check, **payload)
+                self.create_feature(name, namespace=namespace, check=check, **payload)
 
             # Call the transform
             def wrapped_func(*args, **kwargs):
@@ -560,3 +580,21 @@ class FeatureStore(object):
             return wrapped_func
 
         return decorator
+
+
+class InFeature(object):
+    def __init__(self, name, namespace=None):
+        self.name = name
+        self.namespace = namespace
+    
+    def __str__(self):
+        return f"{self.namespace}/{self.name}"
+
+
+class OutFeature(object):
+    def __init__(self, name, namespace=None):
+        self.name = name
+        self.namespace = namespace
+    
+    def __str__(self):
+        return f"{self.namespace}/{self.name}"

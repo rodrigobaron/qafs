@@ -61,8 +61,8 @@ class FeatureStoreMixin(object):
             raise ValueError(f"Cannot change name of {self.__class__.__name__}: use clone instead")
         for key, value in payload.items():
             if key == "meta" or key == "metadata":
-                # See https://amercader.net/blog/beware-of-json-fields-in-sqlalchemy/
                 self.meta = copy.deepcopy(self.meta)
+                
                 # Merge old metadata with new
                 if self.meta:
                     self.meta.update(value)
@@ -238,12 +238,16 @@ class Feature(Base, FeatureStoreMixin):
                 last=last,
                 callers=callers,
             )
+        
+
         # Get backend
         store = self.namespace_object._backend(storage)
+        
         # Restrict which partitions are loaded when getting last value
         if last:
             from_date = store.last(self.name)
             to_date = None
+        
         # Load dataframe
         return store.load(
             self.name,
