@@ -39,7 +39,6 @@ def squared(df):
 df_query = fs.load_features(
     features=[
         OutFeature(name='numbers', namespace='example'),
-        # OutFeature(name='squared', namespace='example')
     ],
     from_date='2021-01-01',
     to_date='2021-01-31'
